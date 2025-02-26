@@ -5,19 +5,20 @@ from common.utils import load_data, save_data
 from common.mlflow_helper import log_preprocessing_params
 import mlflow
 import os
+import random
+import string
 
 # Thiết lập tracking URI cục bộ
 mlflow.set_tracking_uri(f"file://{os.path.abspath('mlruns')}")
 
-
 def preprocess_data():
     st.header("Tiền xử lý dữ liệu Titanic 🛳️")
-
 
     # Cho người dùng đặt tên Experiment
     experiment_name = st.text_input("Nhập tên Experiment cho tiền xử lý", value="Titanic_Preprocessing")
     if experiment_name:
         mlflow.set_experiment(experiment_name)
+
     # Khởi tạo session_state để lưu dữ liệu
     if 'data' not in st.session_state:
         st.session_state['data'] = None
@@ -50,7 +51,7 @@ def preprocess_data():
     columns_to_drop = st.multiselect(
         "Chọn cột cần loại bỏ",
         options=st.session_state['data'].columns.tolist(),
-        help="Gợi ý: Loại bỏ 'Cabin' (nhiều dữ liệu thiếu), 'Name', 'Ticket', 'PassengerId' (không hữu ích)."
+        help="Gợi ý: Loại bỏ 'Name', 'Ticket', 'PassengerId' (không hữu ích). Để lại 'Cabin' để xử lý riêng."
     )
     if st.button("Loại bỏ các cột đã chọn 🗑️"):
         if columns_to_drop:
@@ -67,7 +68,82 @@ def preprocess_data():
             st.write(f"#### Xử lý dữ liệu thiếu ở cột '{col}'")
             st.write(f"Dữ liệu thiếu: {st.session_state['data'][col].isnull().sum()} trên tổng số {len(st.session_state['data'])} dòng")
 
-            if st.session_state['data'][col].dtype in ['int64', 'float64']:
+            if col == 'Cabin':
+                st.info("Cột 'Cabin' sẽ được điền theo định dạng 'Chữ + Số' (ví dụ: C123).")
+                fill_method = st.selectbox(
+                    f"Chọn phương pháp điền cho '{col}'",
+                    ["Mode (định dạng chuẩn)", "Giá trị ngẫu nhiên theo định dạng Cabin", "Giá trị phổ biến nhất theo chữ cái"],
+                    key=f"fill_method_{col}"
+                )
+
+                # Hàm chuẩn hóa định dạng Cabin (1 chữ cái + số)
+                def normalize_cabin(cabin):
+                    if pd.isna(cabin):
+                        return None
+                    # Lấy phần đầu tiên (chữ cái + số) nếu có nhiều giá trị
+                    if isinstance(cabin, str) and ' ' in cabin:
+                        parts = cabin.split()
+                        if parts:
+                            cabin = parts[0]
+                    # Đảm bảo định dạng đúng (1 chữ cái + số)
+                    if isinstance(cabin, str) and cabin:
+                        match = ''.join(filter(str.isalnum, cabin))  # Lọc chỉ chữ cái và số
+                        if match and len(match) > 1 and match[0].isalpha() and match[1:].isdigit():
+                            return match
+                    return None
+
+                # Chuẩn hóa dữ liệu Cabin trước khi xử lý
+                st.session_state['data'][col] = st.session_state['data'][col].apply(normalize_cabin)
+
+                if fill_method == "Mode (định dạng chuẩn)":
+                    if st.button(f"Điền giá trị cho '{col}' ✏️", key=f"fill_{col}"):
+                        # Tìm mode của cột Cabin đã chuẩn hóa
+                        mode_value = st.session_state['data'][col].mode()[0] if not st.session_state['data'][col].mode().empty else None
+                        if mode_value and isinstance(mode_value, str) and len(mode_value) > 1 and mode_value[0].isalpha() and mode_value[1:].isdigit():
+                            st.session_state['data'][col] = st.session_state['data'][col].fillna(mode_value)
+                            st.session_state['preprocessing_steps'][f"{col}_filled"] = f"mode_{mode_value}"
+                            st.success(f"Đã điền dữ liệu thiếu ở '{col}' bằng mode: {mode_value}.")
+                        else:
+                            st.error("Không tìm thấy mode phù hợp định dạng 'Chữ + Số'. Vui lòng thử phương pháp khác.")
+                        st.write("Xem trước dữ liệu đã cập nhật (Sau khi điền):", st.session_state['data'].head())
+
+                elif fill_method == "Giá trị ngẫu nhiên theo định dạng Cabin":
+                    def generate_cabin():
+                        letter = random.choice(string.ascii_uppercase)
+                        number = random.randint(1, 999)
+                        return f"{letter}{number}"
+                    
+                    if st.button(f"Điền giá trị cho '{col}' ✏️", key=f"fill_{col}"):
+                        st.session_state['data'][col] = st.session_state['data'][col].apply(
+                            lambda x: x if pd.notnull(x) else generate_cabin()
+                        )
+                        st.session_state['preprocessing_steps'][f"{col}_filled"] = "random_cabin_format"
+                        st.success(f"Đã điền dữ liệu thiếu ở '{col}' bằng giá trị ngẫu nhiên theo định dạng Cabin.")
+                        st.write("Xem trước dữ liệu đã cập nhật (Sau khi điền):", st.session_state['data'].head())
+
+                elif fill_method == "Giá trị phổ biến nhất theo chữ cái":
+                    # Phân tích giá trị phổ biến nhất dựa trên chữ cái đầu tiên
+                    if st.button(f"Điền giá trị cho '{col}' ✏️", key=f"fill_{col}"):
+                        # Lấy tất cả giá trị Cabin không thiếu
+                        valid_cabins = st.session_state['data'][col].dropna().apply(normalize_cabin).dropna()
+                        if not valid_cabins.empty:
+                            # Đếm số lần xuất hiện của chữ cái đầu tiên
+                            first_letters = valid_cabins.str[0].value_counts()
+                            if not first_letters.empty:
+                                most_common_letter = first_letters.idxmax()
+                                # Tạo giá trị ngẫu nhiên với chữ cái phổ biến nhất
+                                number = random.randint(1, 999)
+                                fill_value = f"{most_common_letter}{number}"
+                                st.session_state['data'][col] = st.session_state['data'][col].fillna(fill_value)
+                                st.session_state['preprocessing_steps'][f"{col}_filled"] = f"most_common_letter_{fill_value}"
+                                st.success(f"Đã điền dữ liệu thiếu ở '{col}' bằng giá trị phổ biến nhất theo chữ cái: {fill_value}.")
+                            else:
+                                st.error("Không thể xác định chữ cái phổ biến nhất. Vui lòng thử phương pháp khác.")
+                        else:
+                            st.error("Không có giá trị Cabin hợp lệ để phân tích. Vui lòng thử phương pháp khác.")
+                        st.write("Xem trước dữ liệu đã cập nhật (Sau khi điền):", st.session_state['data'].head())
+
+            elif st.session_state['data'][col].dtype in ['int64', 'float64']:
                 st.info(f"Gợi ý: Dùng 'median' hoặc 'mean' cho dữ liệu số. Median bền vững với ngoại lệ.")
                 fill_method = st.selectbox(
                     f"Chọn phương pháp điền cho '{col}'",
@@ -76,6 +152,18 @@ def preprocess_data():
                 )
                 if fill_method == "Giá trị tùy chỉnh":
                     custom_value = st.number_input(f"Nhập giá trị tùy chỉnh cho '{col}'", key=f"custom_{col}")
+                if st.button(f"Điền giá trị cho '{col}' ✏️", key=f"fill_{col}"):
+                    if fill_method == "Mean":
+                        st.session_state['data'][col] = st.session_state['data'][col].fillna(st.session_state['data'][col].mean())
+                        st.session_state['preprocessing_steps'][f"{col}_filled"] = "mean"
+                    elif fill_method == "Median":
+                        st.session_state['data'][col] = st.session_state['data'][col].fillna(st.session_state['data'][col].median())
+                        st.session_state['preprocessing_steps'][f"{col}_filled"] = "median"
+                    elif fill_method == "Giá trị tùy chỉnh":
+                        st.session_state['data'][col] = st.session_state['data'][col].fillna(custom_value)
+                        st.session_state['preprocessing_steps'][f"{col}_filled"] = f"custom_{custom_value}"
+                    st.success(f"Đã điền dữ liệu thiếu ở '{col}' bằng phương pháp {fill_method.lower()}.")
+                    st.write("Xem trước dữ liệu đã cập nhật (Sau khi điền):", st.session_state['data'].head())
             else:
                 st.info(f"Gợi ý: Dùng 'mode' cho dữ liệu phân loại.")
                 fill_method = st.selectbox(
@@ -85,23 +173,15 @@ def preprocess_data():
                 )
                 if fill_method == "Giá trị tùy chỉnh":
                     custom_value = st.text_input(f"Nhập giá trị tùy chỉnh cho '{col}'", key=f"custom_{col}")
-
-            if st.button(f"Điền giá trị cho '{col}' ✏️", key=f"fill_{col}"):
-                if fill_method == "Mean":
-                    st.session_state['data'][col] = st.session_state['data'][col].fillna(st.session_state['data'][col].mean())
-                    st.session_state['preprocessing_steps'][f"{col}_filled"] = "mean"
-                elif fill_method == "Median":
-                    st.session_state['data'][col] = st.session_state['data'][col].fillna(st.session_state['data'][col].median())
-                    st.session_state['preprocessing_steps'][f"{col}_filled"] = "median"
-                elif fill_method == "Mode":
-                    st.session_state['data'][col] = st.session_state['data'][col].fillna(st.session_state['data'][col].mode()[0])
-                    st.session_state['preprocessing_steps'][f"{col}_filled"] = "mode"
-                elif fill_method == "Giá trị tùy chỉnh":
-                    st.session_state['data'][col] = st.session_state['data'][col].fillna(custom_value)
-                    st.session_state['preprocessing_steps'][f"{col}_filled"] = f"custom_{custom_value}"
-
-                st.success(f"Đã điền dữ liệu thiếu ở '{col}' bằng phương pháp {fill_method.lower()}.")
-                st.write("Xem trước dữ liệu đã cập nhật (Sau khi điền):", st.session_state['data'].head())
+                if st.button(f"Điền giá trị cho '{col}' ✏️", key=f"fill_{col}"):
+                    if fill_method == "Mode":
+                        st.session_state['data'][col] = st.session_state['data'][col].fillna(st.session_state['data'][col].mode()[0])
+                        st.session_state['preprocessing_steps'][f"{col}_filled"] = "mode"
+                    elif fill_method == "Giá trị tùy chỉnh":
+                        st.session_state['data'][col] = st.session_state['data'][col].fillna(custom_value)
+                        st.session_state['preprocessing_steps'][f"{col}_filled"] = f"custom_{custom_value}"
+                    st.success(f"Đã điền dữ liệu thiếu ở '{col}' bằng phương pháp {fill_method.lower()}.")
+                    st.write("Xem trước dữ liệu đã cập nhật (Sau khi điền):", st.session_state['data'].head())
     else:
         st.success("Không phát hiện dữ liệu thiếu trong tập dữ liệu hiện tại. ✅")
 
