@@ -5,4 +5,5 @@ pillow
 numpy
 scikit-learn
 openml
-opencv-python
+mlflow
+streamlit-drawable-canvas

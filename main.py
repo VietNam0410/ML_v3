@@ -25,17 +25,17 @@ def display_exercise():
         
         with tab3:
             show_demo()
-    # elif exercise == "Exercise 2: MNIST Handwritten Digit Recognition":
-    #     tab1, tab2, tab3 = st.tabs(["Preprocess Data", "Train Model", "Demo"])
+    elif exercise == "Exercise 2: MNIST Handwritten Digit Recognition":
+        tab1, tab2, tab3 = st.tabs(["Preprocess Data", "Train Model", "Demo"])
         
-    #     with tab1:
-    #         preprocess_mnist()
+        with tab1:
+            preprocess_mnist()
         
-    #     with tab2:
-    #         train_mnist()
+        with tab2:
+            train_mnist()
         
-    #     with tab3:
-    #         show_mnist_demo()
+        with tab3:
+            show_mnist_demo()
 
 if exercise in ["Exercise 1: Titanic Survival Prediction", "Exercise 2: MNIST Handwritten Digit Recognition"]:
     display_exercise()
