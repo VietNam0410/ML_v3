@@ -147,43 +147,60 @@ def show_demo():
                             # Cho người dùng đặt tên run
                             run_name = st.text_input("Enter a name for this prediction run", value="Prediction_Run")
                             if st.button("Log Predictions to MLflow"):
-                                with mlflow.start_run(run_name=run_name) as run:
-                                    # Log tất cả thông tin dưới dạng parameters
+                                # Kiểm tra và kết thúc run hiện tại nếu có
+                                # Sửa đổi bởi Grok 3: Thêm kiểm tra run hiện tại và kết thúc nếu cần
+                                active_run = mlflow.active_run()
+                                if active_run:
+                                    mlflow.end_run()
+
+                                with mlflow.start_run(run_name=run_name):
+                                    # Log tất cả thông tin đầu vào
                                     for col, value in input_data.items():
                                         mlflow.log_param(f"input_{col}", value)
                                     mlflow.log_param("model_run_id", selected_run_id)
                                     mlflow.log_param("predicted_survival", predictions[0])
                                     mlflow.log_param("run_name", run_name)
-                                    mlflow.log_param("run_id", run.info.run_id)
+                                    mlflow.log_param("run_timestamp", pd.Timestamp.now().isoformat())
 
-                                    # Hiển thị bản log
+                                    # Log dữ liệu mẫu
+                                    mlflow.log_text(X_selected.to_csv(), "input_data.csv")
+                                    mlflow.log_text(result_df.to_csv(), "prediction_result.csv")
+
+                                    # Thêm thông tin về run huấn luyện
+                                    model_run = mlflow.get_run(selected_run_id)
+                                    mlflow.log_param("training_run_id", selected_run_id)
+                                    mlflow.log_param("training_experiment_id", model_run.info.experiment_id)
+
+                                    # Hiển thị thông tin log
                                     st.write("Logged Information:")
                                     log_info = {
                                         "Run Name": run_name,
-                                        "Run ID": run.info.run_id,
+                                        "Run ID": mlflow.active_run().info.run_id,
                                         "Input Data": input_data,
                                         "Model Run ID": selected_run_id,
                                         "Predicted Survival": predictions[0]
                                     }
                                     st.write(log_info)
 
-                                    # Thông báo log predict kèm link MLflow
-                                    run_id = run.info.run_id
+                                    # Tạo liên kết MLflow
                                     experiment_id = experiments[experiment_name]
-                                    mlflow_ui_link = f"http://127.0.0.1:5000/#/experiments/{experiment_id}/runs/{run_id}"
-                                    st.success(f"Prediction logged successfully to MLflow!\n- Experiment: '{experiment_name}'\n- Run Name: '{run_name}'\n- Run ID: {run_id}\n- Link: [View in MLflow UI]({mlflow_ui_link})")
+                                    mlflow_ui_link = f"http://127.0.0.1:5000/#/experiments/{experiment_id}/runs/{mlflow.active_run().info.run_id}"
+                                    st.success(f"Prediction logged successfully to MLflow!\n- Experiment: '{experiment_name}'\n- Run Name: '{run_name}'\n- Run ID: {mlflow.active_run().info.run_id}\n- Link: [View in MLflow UI]({mlflow_ui_link})")
+
+                                    # Cập nhật session_state để chuyển tab
+                                    st.session_state['selected_run_id'] = mlflow.active_run().info.run_id
 
                                     # Liên kết tới các tab khác
                                     st.write("What would you like to do next?")
                                     col1, col2 = st.columns(2)
                                     with col1:
                                         if st.button("View this run in 'View Logged Results'"):
-                                            st.session_state['selected_run_id'] = run_id
+                                            st.session_state['selected_run_id'] = mlflow.active_run().info.run_id
                                             st.session_state['active_tab'] = 1
                                             st.info("Please switch to the 'View Logged Results' tab to see this run.")
                                     with col2:
                                         if st.button("Delete this run in 'Delete Logs'"):
-                                            st.session_state['selected_run_id'] = run_id
+                                            st.session_state['selected_run_id'] = mlflow.active_run().info.run_id
                                             st.session_state['active_tab'] = 2
                                             st.info("Please switch to the 'Delete Logs' tab to delete this run.")
 
@@ -198,8 +215,8 @@ def show_demo():
             st.write("No prediction runs logged yet.")
         else:
             st.write("List of logged runs:")
-            display_runs = runs[['run_id', 'tags.mlflow.runName', 'start_time', 'experiment_id']].rename(
-                columns={'tags.mlflow.runName': 'Run Name', 'start_time': 'Start Time', 'experiment_id': 'Experiment ID'}
+            display_runs = runs[['run_id', 'tags.mlflow.runName', 'start_time', 'experiment_id', 'params.predicted_survival']].rename(
+                columns={'tags.mlflow.runName': 'Run Name', 'start_time': 'Start Time', 'experiment_id': 'Experiment ID', 'params.predicted_survival': 'Prediction'}
             )
             st.write(display_runs)
 
@@ -217,6 +234,7 @@ def show_demo():
                 st.write(f"Run Name: {run_details.get('tags.mlflow.runName', 'Unnamed')}")
                 st.write(f"Experiment ID: {run_details['experiment_id']}")
                 st.write(f"Start Time: {run_details['start_time']}")
+                st.write(f"Prediction: {run_details.get('params.predicted_survival', 'N/A')}")
 
                 st.write("Logged Parameters:")
                 params = mlflow.get_run(selected_run_id).data.params

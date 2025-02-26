@@ -7,6 +7,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn.pipeline import Pipeline
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from common.utils import load_data
 import os
 
@@ -59,11 +60,21 @@ def train_model():
         st.write("Dữ liệu validation (X_valid):", X_valid.head())
         st.write("Dữ liệu kiểm tra (X_test):", X_test.head())
 
-        # Log vào MLflow
+        # Kiểm tra và kết thúc run hiện tại nếu có
+        # Sửa đổi bởi Grok 3: Thêm kiểm tra run hiện tại và kết thúc nếu cần
+        active_run = mlflow.active_run()
+        if active_run:
+            mlflow.end_run()
+
+        # Log thông tin dữ liệu chi tiết
         with mlflow.start_run(run_name="Data_Split"):
+            mlflow.log_param("data_shape", data.shape)
             mlflow.log_param("test_size", test_size)
             mlflow.log_param("valid_size", valid_size)
             mlflow.log_param("train_size", train_size)
+            mlflow.log_text(X_train.head().to_csv(), "X_train_sample.csv")
+            mlflow.log_text(X_valid.head().to_csv(), "X_valid_sample.csv")
+            mlflow.log_text(X_test.head().to_csv(), "X_test_sample.csv")
             st.success("Dữ liệu đã được chia và log vào MLflow ✅.")
 
         # Lưu dữ liệu vào session để dùng sau
@@ -91,13 +102,19 @@ def train_model():
             fold_df = pd.DataFrame(fold_data)
             st.write("Cross Validation Folds:", fold_df)
 
-            # Log folds vào MLflow
-            with mlflow.start_run(run_name=f"CV_{k_folds}_Folds"):
+            # Kiểm tra và kết thúc run hiện tại nếu có
+            # Sửa đổi bởi Grok 3: Thêm kiểm tra run hiện tại và kết thúc nếu cần
+            active_run = mlflow.active_run()
+            if active_run:
+                mlflow.end_run()
+
+            # Log chi tiết cross-validation
+            with mlflow.start_run(run_name=f"CV_{k_folds}_Folds", nested=True):  # Sử dụng nested=True cho run lồng nhau
                 mlflow.log_param("k_folds", k_folds)
                 for _, row in fold_df.iterrows():
                     mlflow.log_metric(f"fold_{row['fold']}_train_size", row["train_size"])
                     mlflow.log_metric(f"fold_{row['fold']}_valid_size", row["valid_size"])
-            st.success(f"Tạo {k_folds}-fold cross validation và log vào MLflow ✅.")
+                st.success(f"Tạo {k_folds}-fold cross validation và log vào MLflow ✅.")
 
     # 3. Huấn luyện mô hình
     st.subheader("Huấn luyện mô hình 🎯")
@@ -130,6 +147,12 @@ def train_model():
         y_train = st.session_state['y_train']
         y_valid = st.session_state['y_valid']
 
+        # Kiểm tra và kết thúc run hiện tại nếu có
+        # Sửa đổi bởi Grok 3: Thêm kiểm tra run hiện tại và kết thúc nếu cần
+        active_run = mlflow.active_run()
+        if active_run:
+            mlflow.end_run()
+
         with mlflow.start_run(run_name=f"{model_choice}_Titanic"):
             # Khởi tạo mô hình dựa trên lựa chọn
             if model_choice == "Random Forest":
@@ -147,6 +170,21 @@ def train_model():
             train_score = model.score(X_train, y_train)
             valid_score = model.score(X_valid, y_valid)
 
+            # Tính toán và log thêm metrics
+            y_train_pred = model.predict(X_train)
+            y_valid_pred = model.predict(X_valid)
+
+            metrics = {
+                "train_accuracy": accuracy_score(y_train, y_train_pred),
+                "valid_accuracy": accuracy_score(y_valid, y_valid_pred),
+                "train_precision": precision_score(y_train, y_train_pred, average='weighted'),
+                "valid_precision": precision_score(y_valid, y_valid_pred, average='weighted'),
+                "train_recall": recall_score(y_train, y_train_pred, average='weighted'),
+                "valid_recall": recall_score(y_valid, y_valid_pred, average='weighted'),
+                "train_f1": f1_score(y_train, y_train_pred, average='weighted'),
+                "valid_f1": f1_score(y_valid, y_valid_pred, average='weighted')
+            }
+
             # Hiển thị thông tin
             st.write(f"Mô hình đã chọn: {model_choice}")
             st.write(f"Tham số: {model_params}")
@@ -155,10 +193,12 @@ def train_model():
 
             # Log vào MLflow
             mlflow.log_params(model_params)
-            mlflow.log_metric("train_accuracy", train_score)
-            mlflow.log_metric("valid_accuracy", valid_score)
-            mlflow.sklearn.log_model(model, "model")
-            st.success(f"Huấn luyện {model_choice} hoàn tất và log vào MLflow ✅.")
+            for metric, value in metrics.items():
+                mlflow.log_metric(metric, value)
+            
+            # Log mô hình với input example để tự động infer signature
+            mlflow.sklearn.log_model(model, "model", input_example=X_train.iloc[:1])
+            st.success(f"Huấn luyện {model_choice} hoàn tất và log chi tiết vào MLflow ✅.")
 
 if __name__ == "__main__":
     train_model()
