@@ -38,7 +38,7 @@ def train_mnist():
     latest_split_run_id = split_runs['run_id'].iloc[0]
 
     # Tải dữ liệu từ MLflow
-    X_train_path = mlflow.artifacts.download_artifacts(run_id=latest_split_run_id, path="X_train.npy")
+    X_train_path = mlflow.artifacts.download_artifacts(run_id=latest_split_run_id, artifact_path="X_train.npy")
     y_train_path = mlflow.artifacts.download_artifacts(run_id=latest_split_run_id, path="y_train.npy")
     X_valid_path = mlflow.artifacts.download_artifacts(run_id=latest_split_run_id, path="X_valid.npy")
     y_valid_path = mlflow.artifacts.download_artifacts(run_id=latest_split_run_id, path="y_valid.npy")
