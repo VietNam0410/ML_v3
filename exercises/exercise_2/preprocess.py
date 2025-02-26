@@ -13,8 +13,8 @@ def load_mnist_from_openml():
         dataset = openml.datasets.get_dataset(554)
         X, y, _, _ = dataset.get_data(target='class')
         
-        # Chuyển đổi X thành mảng numpy và chuẩn hóa (28x28x1)
-        X = X.reshape(-1, 28, 28, 1) / 255.0
+        # Chuyển đổi X (DataFrame) thành mảng numpy và chuẩn hóa (28x28x1)
+        X = X.values.reshape(-1, 28, 28, 1) / 255.0  # Sử dụng .values để lấy mảng numpy từ DataFrame
         y = y.astype(np.int32)
         
         return X, y
@@ -40,7 +40,7 @@ def preprocess_mnist():
 
     # Tải dữ liệu MNIST từ OpenML (sử dụng cache)
     if st.button("Tải dữ liệu MNIST từ OpenML"):
-        # Sửa đổi bởi Grok 3: Tải trực tiếp từ OpenML, sử dụng st.cache_data
+        # Sửa đổi bởi Grok 3: Tải trực tiếp từ OpenML, sử dụng st.cache_data, đảm bảo trả về numpy array
         X_full, y_full = load_mnist_from_openml()
         
         # Lưu dữ liệu đầy đủ vào session
@@ -51,15 +51,17 @@ def preprocess_mnist():
         st.session_state['preprocessing_steps'] = {"loaded": True}
         st.success("Dữ liệu MNIST đã được tải từ OpenML và chuẩn hóa thành công! ✅")
 
+    # Kiểm tra và hiển thị trạng thái session
+    # Sửa đổi bởi Grok 3: Thêm kiểm tra chi tiết hơn và hướng dẫn người dùng
     if 'mnist_data' not in st.session_state or st.session_state['mnist_data'] is None:
-        st.warning("Vui lòng tải dữ liệu MNIST để tiếp tục. ⚠️")
+        st.warning("Vui lòng nhấn nút 'Tải dữ liệu MNIST từ OpenML' để tải dữ liệu trước khi tiếp tục. ⚠️")
         return
 
-    # Kiểm tra key 'X_full' trước khi truy cập
-    # Sửa đổi bởi Grok 3: Thêm kiểm tra key 'X_full'
+    # Kiểm tra key 'X_full' và 'y_full' trước khi truy cập
+    # Sửa đổi bởi Grok 3: Thêm kiểm tra key chi tiết hơn
     mnist_data = st.session_state['mnist_data']
-    if 'X_full' not in mnist_data:
-        st.error("Dữ liệu 'X_full' không tồn tại trong session. Vui lòng tải lại dữ liệu MNIST.")
+    if 'X_full' not in mnist_data or 'y_full' not in mnist_data:
+        st.error("Dữ liệu 'X_full' hoặc 'y_full' không tồn tại trong session. Vui lòng tải lại dữ liệu MNIST bằng cách nhấn nút 'Tải dữ liệu MNIST từ OpenML'.")
         return
 
     # Hiển thị thông tin dữ liệu đầy đủ
@@ -69,7 +71,7 @@ def preprocess_mnist():
     st.image(mnist_data['X_full'][0].reshape(28, 28), caption=f"Chữ số: {mnist_data['y_full'][0]}", width=100)
 
     # Chia tách dữ liệu theo lựa chọn của người dùng
-    # Sửa đổi bởi Grok 3: Cho phép người dùng chọn kích thước tập dữ liệu
+    # Sửa đổi bởi Grok 3: Cho phép người dùng chọn kích thước tập dữ liệu, đảm bảo sử dụng numpy array
     st.subheader("Chia tách Dữ liệu (Tùy chọn) 🔀")
     train_size = st.slider("Chọn kích thước tập huấn luyện (%)", min_value=10, max_value=90, value=70, step=5) / 100
     val_size = st.slider("Chọn kích thước tập validation (%)", min_value=0, max_value=30, value=15, step=5) / 100
@@ -81,12 +83,6 @@ def preprocess_mnist():
         if st.button("Chia dữ liệu"):
             X_full = mnist_data['X_full']
             y_full = mnist_data['y_full']
-
-            # Kiểm tra key 'y_full' trước khi truy cập
-            # Sửa đổi bởi Grok 3: Thêm kiểm tra key 'y_full'
-            if 'y_full' not in mnist_data:
-                st.error("Dữ liệu 'y_full' không tồn tại trong session. Vui lòng tải lại dữ liệu MNIST.")
-                return
 
             # Chia dữ liệu thành tập huấn luyện, validation, và kiểm tra
             X_temp, X_test, y_temp, y_test = train_test_split(X_full, y_full, test_size=test_size, random_state=42)
