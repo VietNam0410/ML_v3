@@ -55,9 +55,15 @@ def preprocess_mnist():
         st.warning("Vui lòng tải dữ liệu MNIST để tiếp tục. ⚠️")
         return
 
+    # Kiểm tra key 'X_full' trước khi truy cập
+    # Sửa đổi bởi Grok 3: Thêm kiểm tra key 'X_full'
+    mnist_data = st.session_state['mnist_data']
+    if 'X_full' not in mnist_data:
+        st.error("Dữ liệu 'X_full' không tồn tại trong session. Vui lòng tải lại dữ liệu MNIST.")
+        return
+
     # Hiển thị thông tin dữ liệu đầy đủ
     st.subheader("Thông tin Dữ liệu MNIST Đầy đủ 🔍")
-    mnist_data = st.session_state['mnist_data']
     st.write(f"Tổng số lượng mẫu: {len(mnist_data['X_full'])}")
     st.write("Hình ảnh mẫu (đầu tiên):")
     st.image(mnist_data['X_full'][0].reshape(28, 28), caption=f"Chữ số: {mnist_data['y_full'][0]}", width=100)
@@ -75,6 +81,12 @@ def preprocess_mnist():
         if st.button("Chia dữ liệu"):
             X_full = mnist_data['X_full']
             y_full = mnist_data['y_full']
+
+            # Kiểm tra key 'y_full' trước khi truy cập
+            # Sửa đổi bởi Grok 3: Thêm kiểm tra key 'y_full'
+            if 'y_full' not in mnist_data:
+                st.error("Dữ liệu 'y_full' không tồn tại trong session. Vui lòng tải lại dữ liệu MNIST.")
+                return
 
             # Chia dữ liệu thành tập huấn luyện, validation, và kiểm tra
             X_temp, X_test, y_temp, y_test = train_test_split(X_full, y_full, test_size=test_size, random_state=42)
