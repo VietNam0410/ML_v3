@@ -159,11 +159,19 @@ def get_mlflow_runs():
         st.error(f"Failed to fetch runs from MLflow: {str(e)}")
         return pd.DataFrame()
 
+def delete_mlflow_run(run_id):
+    """Xóa một run từ MLflow."""
+    try:
+        mlflow.delete_run(run_id)
+        st.success(f"Deleted run with ID: {run_id}")
+    except mlflow.exceptions.MlflowException as e:
+        st.error(f"Failed to delete run {run_id}: {str(e)}")
+
 def show_demo():
     st.header("Titanic Survival Prediction Demo")
 
     # Tạo các tab
-    tab1, tab2 = st.tabs(["Make Predictions", "View Logged Results"])
+    tab1, tab2, tab3 = st.tabs(["Make Predictions", "View Logged Results", "Delete Logs"])
 
     # Tab 1: Dự đoán
     with tab1:
@@ -192,38 +200,51 @@ def show_demo():
         # Load mô hình từ MLflow để lấy thông tin cột huấn luyện
         try:
             model = mlflow.sklearn.load_model(f"runs:/{selected_run_id}/model")
-            # Lấy danh sách cột mà mô hình mong đợi
             expected_columns = model.feature_names_in_ if hasattr(model, 'feature_names_in_') else X_full.columns.tolist()
         except:
             st.error(f"Failed to load model with Run ID: {selected_run_id}. Please check MLflow.")
             return
 
-        # Cho người dùng nhập dữ liệu dựa trên các cột mà mô hình mong đợi
+        # Cho người dùng nhập dữ liệu với kiểm soát miền giá trị và kiểu dữ liệu
         st.write("Enter values for each column (based on the model's training data):")
         input_data = {}
         for col in expected_columns:
-            if col in X_full.columns:  # Kiểm tra cột có trong dữ liệu gốc không
-                if X_full[col].dtype in ['int64', 'float64']:
-                    min_val = float(X_full[col].min())
-                    max_val = float(X_full[col].max())
-                    default_val = float(X_full[col].mean())
+            if col in X_full.columns:
+                if col == 'Age':
                     input_data[col] = st.number_input(
-                        f"Enter value for '{col}' (Range: {min_val} to {max_val})",
-                        min_value=min_val,
-                        max_value=max_val,
-                        value=default_val,
+                        f"Enter value for '{col}' (0-100)",
+                        min_value=0.0,
+                        max_value=100.0,
+                        value=float(X_full[col].mean()),
                         key=f"input_{col}"
                     )
-                else:
+                elif col == 'Sex':
+                    input_data[col] = st.selectbox(
+                        f"Choose value for '{col}' (0=male, 1=female)",
+                        options=[0, 1],
+                        key=f"input_{col}"
+                    )
+                elif col.startswith('Embarked_') or col in ['Pclass', 'SibSp', 'Parch']:
+                    # Giả sử các cột này là categorical hoặc số nguyên nhỏ
                     unique_vals = X_full[col].unique().tolist()
                     input_data[col] = st.selectbox(
                         f"Choose value for '{col}'",
                         options=unique_vals,
                         key=f"input_{col}"
                     )
+                else:
+                    # Các cột số khác (như Fare)
+                    min_val = float(X_full[col].min())
+                    max_val = float(X_full[col].max())
+                    input_data[col] = st.number_input(
+                        f"Enter value for '{col}' (Range: {min_val} to {max_val})",
+                        min_value=min_val,
+                        max_value=max_val,
+                        value=float(X_full[col].mean()),
+                        key=f"input_{col}"
+                    )
             else:
-                # Nếu cột không có trong X_full (ví dụ: từ One-Hot Encoding), mặc định giá trị 0
-                input_data[col] = 0
+                input_data[col] = 0  # Cột từ One-Hot Encoding không có trong X_full
 
         # Tạo DataFrame từ dữ liệu người dùng nhập
         X_selected = pd.DataFrame([input_data])
@@ -242,6 +263,10 @@ def show_demo():
                 st.write("Prediction Result:")
                 st.write(result_df)
 
+                # Hiển thị lại thông tin nhập
+                st.write("Your Input Data (Recap):")
+                st.write(pd.DataFrame([input_data]))
+
                 # Cho người dùng đặt tên run
                 run_name = st.text_input("Enter a name for this prediction run", value="Prediction_Run")
                 if st.button("Log Predictions to MLflow"):
@@ -254,6 +279,15 @@ def show_demo():
                         result_df.to_csv("temp_predictions.csv", index=False)
                         mlflow.log_artifact("temp_predictions.csv", "predictions")
                         os.remove("temp_predictions.csv")
+
+                        # Hiển thị bản log
+                        st.write("Logged Information:")
+                        st.write({
+                            "Run Name": run_name,
+                            "Run ID": run.info.run_id,
+                            "Input Data": input_data,
+                            "Model Run ID": selected_run_id
+                        })
 
                         # Tạo link tới MLflow UI
                         run_id = run.info.run_id
@@ -285,7 +319,6 @@ def show_demo():
                 st.write(f"Run Name: {run_details.get('tags.mlflow.runName', 'Unnamed')}")
                 st.write(f"Start Time: {run_details['start_time']}")
 
-                # Hiển thị tham số và artifact nếu có
                 st.write("Logged Parameters:")
                 params = mlflow.get_run(selected_run_id).data.params
                 st.write(params)
@@ -299,9 +332,27 @@ def show_demo():
                         st.write(f"Artifact: {artifact.path}")
                         st.write(artifact_data.head())
 
-                # Thêm link tới MLflow UI
                 mlflow_ui_link = f"http://localhost:5000/#/experiments/0/runs/{selected_run_id}"
                 st.write(f"View this run in MLflow UI: [Click here]({mlflow_ui_link})")
+
+    # Tab 3: Xóa log
+    with tab3:
+        st.subheader("Delete Unnecessary Logs")
+        runs = get_mlflow_runs()
+        if runs.empty:
+            st.write("No runs available to delete.")
+        else:
+            st.write("Select runs to delete:")
+            runs_to_delete = st.multiselect(
+                "Choose runs",
+                options=[f"Run ID: {run['run_id']} - {run.get('tags.mlflow.runName', 'Unnamed')}" for _, run in runs.iterrows()],
+                key="delete_runs"
+            )
+            if st.button("Delete Selected Runs"):
+                for run_str in runs_to_delete:
+                    run_id = run_str.split("Run ID: ")[1].split(" - ")[0]
+                    delete_mlflow_run(run_id)
+                st.success("Selected runs have been deleted. Refresh the page to update the list.")
 
 if __name__ == "__main__":
     show_demo()
