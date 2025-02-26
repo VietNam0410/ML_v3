@@ -1,0 +1,4 @@
+streamlit
+mlflow
+pandas
+scikit-learn
