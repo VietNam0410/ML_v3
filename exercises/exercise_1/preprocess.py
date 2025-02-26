@@ -4,11 +4,18 @@ from sklearn.preprocessing import LabelEncoder, MinMaxScaler, StandardScaler
 from common.utils import load_data, save_data
 from common.mlflow_helper import log_preprocessing_params
 import mlflow
-import os 
+import os
+
+# Thiết lập tracking URI cục bộ
 mlflow.set_tracking_uri(f"file://{os.path.abspath('mlruns')}")
 
 def preprocess_data():
-    st.header("Tiền xử lý dữ liệu Titanic 🛳️")
+    st.header("Preprocess Titanic Data")
+
+    # Cho người dùng đặt tên Experiment
+    experiment_name = st.text_input("Enter Experiment Name for Preprocessing", value="Titanic_Preprocessing")
+    if experiment_name:
+        mlflow.set_experiment(experiment_name)
 
     # Khởi tạo session_state để lưu dữ liệu
     if 'data' not in st.session_state:
@@ -17,68 +24,68 @@ def preprocess_data():
         st.session_state['preprocessing_steps'] = {}
 
     # Bắt buộc người dùng upload file trước
-    uploaded_file = st.file_uploader("Tải lên file CSV Titanic 📂", type=["csv"])
+    uploaded_file = st.file_uploader("Upload Titanic CSV file", type=["csv"])
     if uploaded_file and st.session_state['data'] is None:
         st.session_state['data'] = pd.read_csv(uploaded_file)
         st.session_state['preprocessing_steps'] = {}  # Reset steps khi upload file mới
-        st.success("File đã được tải lên thành công! ✅")
+        st.success("File uploaded successfully!")
 
     if st.session_state['data'] is None:
-        st.warning("Vui lòng tải lên file CSV để tiếp tục. ⚠️")
+        st.warning("Please upload a CSV file to proceed.")
         return
 
     # Hiển thị dữ liệu gốc hoặc dữ liệu đang xử lý
-    st.subheader("Xem trước dữ liệu hiện tại 🔍")
-    st.write("Đây là dữ liệu khi bạn tiến hành xử lý từng bước:")
+    st.subheader("Current Data Preview")
+    st.write("This reflects the data as you preprocess it step-by-step:")
     st.write(st.session_state['data'].head())
 
     # Hiển thị thông tin còn thiếu
-    st.subheader("Dữ liệu thiếu (Trạng thái hiện tại) ⚠️")
+    st.subheader("Missing Values (Current State)")
     missing_info = st.session_state['data'].isnull().sum()
     st.write(missing_info)
 
     # 1. Loại bỏ cột
-    st.write("### Bước 1: Loại bỏ cột 🗑️")
+    st.write("### Step 1: Remove Columns")
     columns_to_drop = st.multiselect(
-        "Chọn cột cần loại bỏ",
+        "Select columns to drop",
         options=st.session_state['data'].columns.tolist(),
-        help="Gợi ý: Loại bỏ 'Cabin' (nhiều dữ liệu thiếu), 'Name', 'Ticket', 'PassengerId' (không hữu ích)."
+        help="Suggestion: Drop 'Cabin' (many missing), 'Name', 'Ticket', 'PassengerId' (not useful)."
     )
-    if st.button("Loại bỏ các cột đã chọn 🗑️"):
+    if st.button("Drop Selected Columns"):
         if columns_to_drop:
             st.session_state['data'] = st.session_state['data'].drop(columns=columns_to_drop)
             st.session_state['preprocessing_steps']["dropped_columns"] = columns_to_drop
-            st.success(f"Đã loại bỏ các cột: {', '.join(columns_to_drop)}")
-            st.write("Xem trước dữ liệu đã cập nhật (Sau khi loại bỏ):", st.session_state['data'].head())
+            st.success(f"Dropped columns: {', '.join(columns_to_drop)}")
+            st.write("Updated Data Preview (After Dropping):", st.session_state['data'].head())
 
     # 2. Điền giá trị thiếu
-    st.write("### Bước 2: Điền giá trị thiếu ✏️")
+    st.write("### Step 2: Fill Missing Values")
     missing_columns = [col for col in st.session_state['data'].columns if st.session_state['data'][col].isnull().sum() > 0]
     if missing_columns:
         for col in missing_columns:
-            st.write(f"#### Xử lý dữ liệu thiếu ở cột '{col}'")
-            st.write(f"Dữ liệu thiếu: {st.session_state['data'][col].isnull().sum()} trên tổng số {len(st.session_state['data'])} dòng")
+            st.write(f"#### Handling missing values in '{col}'")
+            st.write(f"Missing: {st.session_state['data'][col].isnull().sum()} out of {len(st.session_state['data'])} rows")
 
             if st.session_state['data'][col].dtype in ['int64', 'float64']:
-                st.info(f"Gợi ý: Dùng 'median' hoặc 'mean' cho dữ liệu số. Median bền vững với ngoại lệ.")
+                st.info(f"Suggestion: Use 'median' or 'mean' for numerical data. Median is robust to outliers.")
                 fill_method = st.selectbox(
-                    f"Chọn phương pháp điền cho '{col}'",
-                    ["Mean", "Median", "Giá trị tùy chỉnh"],
+                    f"Choose method for '{col}'",
+                    ["Mean", "Median", "Custom Value"],
                     key=f"fill_method_{col}"
                 )
-                if fill_method == "Giá trị tùy chỉnh":
-                    custom_value = st.number_input(f"Nhập giá trị tùy chỉnh cho '{col}'", key=f"custom_{col}")
+                if fill_method == "Custom Value":
+                    custom_value = st.number_input(f"Enter custom value for '{col}'", key=f"custom_{col}")
             else:
-                st.info(f"Gợi ý: Dùng 'mode' cho dữ liệu phân loại.")
+                st.info(f"Suggestion: Use 'mode' for categorical data.")
                 fill_method = st.selectbox(
-                    f"Chọn phương pháp điền cho '{col}'",
-                    ["Mode", "Giá trị tùy chỉnh"],
+                    f"Choose method for '{col}'",
+                    ["Mode", "Custom Value"],
                     key=f"fill_method_{col}"
                 )
-                if fill_method == "Giá trị tùy chỉnh":
-                    custom_value = st.text_input(f"Nhập giá trị tùy chỉnh cho '{col}'", key=f"custom_{col}")
+                if fill_method == "Custom Value":
+                    custom_value = st.text_input(f"Enter custom value for '{col}'", key=f"custom_{col}")
 
-            if st.button(f"Điền giá trị cho '{col}' ✏️", key=f"fill_{col}"):
+            if st.button(f"Fill '{col}'", key=f"fill_{col}"):
                 if fill_method == "Mean":
                     st.session_state['data'][col] = st.session_state['data'][col].fillna(st.session_state['data'][col].mean())
                     st.session_state['preprocessing_steps'][f"{col}_filled"] = "mean"
@@ -88,56 +95,56 @@ def preprocess_data():
                 elif fill_method == "Mode":
                     st.session_state['data'][col] = st.session_state['data'][col].fillna(st.session_state['data'][col].mode()[0])
                     st.session_state['preprocessing_steps'][f"{col}_filled"] = "mode"
-                elif fill_method == "Giá trị tùy chỉnh":
+                elif fill_method == "Custom Value":
                     st.session_state['data'][col] = st.session_state['data'][col].fillna(custom_value)
                     st.session_state['preprocessing_steps'][f"{col}_filled"] = f"custom_{custom_value}"
 
-                st.success(f"Đã điền dữ liệu thiếu ở '{col}' bằng phương pháp {fill_method.lower()}.")
-                st.write("Xem trước dữ liệu đã cập nhật (Sau khi điền):", st.session_state['data'].head())
+                st.success(f"Filled missing values in '{col}' using {fill_method.lower()}.")
+                st.write("Updated Data Preview (After Filling):", st.session_state['data'].head())
     else:
-        st.success("Không phát hiện dữ liệu thiếu trong tập dữ liệu hiện tại. ✅")
+        st.success("No missing values detected in the current dataset.")
 
     # 3. Chuyển đổi dữ liệu phân loại
-    st.write("### Bước 3: Chuyển đổi cột phân loại 🔠")
+    st.write("### Step 3: Convert Categorical Columns")
     categorical_cols = [col for col in st.session_state['data'].columns if st.session_state['data'][col].dtype == 'object']
     if categorical_cols:
         for col in categorical_cols:
-            st.write(f"#### Chuyển đổi '{col}'")
-            st.info(f"Gợi ý: 'Label Encoding' cho dữ liệu có thứ tự/có ít giá trị; 'One-Hot Encoding' cho dữ liệu không thứ tự/có ít giá trị.")
+            st.write(f"#### Convert '{col}'")
+            st.info(f"Suggestion: 'Label Encoding' for ordinal/low cardinality; 'One-Hot Encoding' for nominal/few values.")
             encoding_method = st.selectbox(
-                f"Chọn phương pháp mã hóa cho '{col}'",
+                f"Choose encoding method for '{col}'",
                 ["Label Encoding", "One-Hot Encoding"],
                 key=f"encode_{col}"
             )
-            if st.button(f"Áp dụng mã hóa cho '{col}' 🔠", key=f"apply_{col}"):
+            if st.button(f"Apply encoding to '{col}'", key=f"apply_{col}"):
                 if encoding_method == "Label Encoding":
                     le = LabelEncoder()
                     st.session_state['data'][col] = le.fit_transform(st.session_state['data'][col])
                     st.session_state['preprocessing_steps'][f"{col}_encoded"] = "label"
-                    st.success(f"Đã áp dụng Label Encoding cho '{col}'.")
+                    st.success(f"Applied Label Encoding to '{col}'.")
                 elif encoding_method == "One-Hot Encoding":
                     st.session_state['data'] = pd.get_dummies(st.session_state['data'], columns=[col], prefix=col)
                     st.session_state['preprocessing_steps'][f"{col}_encoded"] = "one-hot"
-                    st.success(f"Đã áp dụng One-Hot Encoding cho '{col}'.")
-                st.write("Xem trước dữ liệu đã cập nhật (Sau khi mã hóa):", st.session_state['data'].head())
+                    st.success(f"Applied One-Hot Encoding to '{col}'.")
+                st.write("Updated Data Preview (After Encoding):", st.session_state['data'].head())
     else:
-        st.success("Không có cột phân loại nào để mã hóa.")
+        st.success("No categorical columns available for encoding.")
 
     # 4. Chuẩn hóa dữ liệu
-    st.write("### Bước 4: Chuẩn hóa/Dữ liệu quy mô 🔢")
+    st.write("### Step 4: Normalize/Scale Numerical Columns")
     numerical_cols = [col for col in st.session_state['data'].columns if st.session_state['data'][col].dtype in ['int64', 'float64']]
     if numerical_cols:
-        st.info("Gợi ý: 'Min-Max Scaling' (0-1) cho phạm vi giới hạn; 'Standard Scaling' (mean=0, std=1) cho dữ liệu chuẩn.")
+        st.info("Suggestion: 'Min-Max Scaling' (0-1) for bounded ranges; 'Standard Scaling' (mean=0, std=1) for normal data.")
         scaling_method = st.selectbox(
-            "Chọn phương pháp chuẩn hóa",
+            "Choose scaling method",
             ["Min-Max Scaling", "Standard Scaling"]
         )
         cols_to_scale = st.multiselect(
-            "Chọn các cột số cần chuẩn hóa",
+            "Select numerical columns to scale",
             options=numerical_cols,
             default=numerical_cols
         )
-        if st.button("Áp dụng chuẩn hóa 📏"):
+        if st.button("Apply Scaling"):
             if cols_to_scale:
                 if scaling_method == "Min-Max Scaling":
                     scaler = MinMaxScaler()
@@ -148,31 +155,31 @@ def preprocess_data():
                     st.session_state['data'][cols_to_scale] = scaler.fit_transform(st.session_state['data'][cols_to_scale])
                     st.session_state['preprocessing_steps']["scaling"] = "standard"
                 st.session_state['preprocessing_steps']["scaled_columns"] = cols_to_scale
-                st.success(f"Đã áp dụng {scaling_method} cho các cột: {', '.join(cols_to_scale)}")
-                st.write("Xem trước dữ liệu đã cập nhật (Sau khi chuẩn hóa):", st.session_state['data'].head())
+                st.success(f"Applied {scaling_method} to columns: {', '.join(cols_to_scale)}")
+                st.write("Updated Data Preview (After Scaling):", st.session_state['data'].head())
             else:
-                st.warning("Không có cột nào được chọn để chuẩn hóa.")
+                st.warning("No columns selected for scaling.")
     else:
-        st.success("Không có cột số nào để chuẩn hóa.")
+        st.success("No numerical columns available for scaling.")
 
     # 5. Lưu và log dữ liệu đã tiền xử lý
-    st.write("### Bước 5: Lưu dữ liệu đã tiền xử lý 💾")
-    if st.button("Lưu dữ liệu đã xử lý và log vào MLflow 📋"):
+    st.write("### Step 5: Save Processed Data")
+    if st.button("Save processed data and log to MLflow"):
         processed_file = "exercises/exercise_1/data/processed/titanic_processed.csv"
         save_data(st.session_state['data'], processed_file)
-        st.success(f"Dữ liệu đã được lưu vào {processed_file} 💾")
+        st.success(f"Processed data saved to {processed_file}")
 
         # Hiển thị dữ liệu cuối cùng trước khi lưu
-        st.subheader("Xem trước dữ liệu đã xử lý cuối cùng (Trước khi lưu) 🔚")
+        st.subheader("Final Processed Data Preview (Before Saving)")
         st.write(st.session_state['data'].head())
 
         # Log các tham số tiền xử lý vào MLflow
         log_preprocessing_params(st.session_state['preprocessing_steps'])
-        st.success("Các bước tiền xử lý đã được log vào MLflow! 📊")
+        st.success(f"Preprocessing steps logged to MLflow under Experiment: '{experiment_name}'!")
 
         # Xác nhận dữ liệu đã lưu đúng
         saved_data = load_data(processed_file)
-        st.write("Xác nhận: Dữ liệu tải lại từ file đã lưu trùng khớp với các lựa chọn tiền xử lý của bạn:")
+        st.write("Verification: Loaded data from saved file matches your preprocessing choices:")
         st.write(saved_data.head())
 
 if __name__ == "__main__":

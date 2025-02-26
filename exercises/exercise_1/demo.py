@@ -8,10 +8,20 @@ import os
 # Thiết lập tracking URI cục bộ
 mlflow.set_tracking_uri(f"file://{os.path.abspath('mlruns')}")
 
+def get_mlflow_experiments():
+    """Lấy danh sách các Experiment từ MLflow."""
+    try:
+        client = mlflow.tracking.MlflowClient()
+        experiments = client.search_experiments()
+        return {exp.name: exp.experiment_id for exp in experiments}
+    except mlflow.exceptions.MlflowException as e:
+        st.error(f"Failed to fetch experiments from MLflow: {str(e)}")
+        return {}
+
 def get_mlflow_runs():
     """Lấy danh sách các run từ MLflow cục bộ."""
     try:
-        runs = mlflow.search_runs(experiment_ids=["0"])
+        runs = mlflow.search_runs()
         return runs
     except mlflow.exceptions.MlflowException as e:
         st.error(f"Failed to fetch runs from MLflow: {str(e)}")
@@ -27,6 +37,20 @@ def delete_mlflow_run(run_id):
 
 def show_demo():
     st.header("Titanic Survival Prediction Demo")
+
+    # Lấy danh sách Experiment hiện có
+    experiments = get_mlflow_experiments()
+    experiment_options = list(experiments.keys()) if experiments else ["Titanic_Demo"]
+
+    # Cho người dùng chọn hoặc nhập tên Experiment
+    experiment_name = st.selectbox(
+        "Select or enter Experiment Name for Demo",
+        options=experiment_options,
+        index=experiment_options.index("Titanic_Demo") if "Titanic_Demo" in experiment_options else 0,
+        help="Choose an existing experiment or type a new one."
+    )
+    if experiment_name:
+        mlflow.set_experiment(experiment_name)
 
     # Tạo các tab
     tab1, tab2, tab3 = st.tabs(["Make Predictions", "View Logged Results", "Delete Logs"])
@@ -48,7 +72,7 @@ def show_demo():
             if runs.empty:
                 st.error("No trained models found in MLflow. Please train a model first.")
             else:
-                model_options = {f"Run ID: {run['run_id']} - {run.get('tags.mlflow.runName', 'Unnamed')}": run['run_id'] 
+                model_options = {f"Run ID: {run['run_id']} - {run.get('tags.mlflow.runName', 'Unnamed')} (Exp: {run['experiment_id']})": run['run_id'] 
                                  for _, run in runs.iterrows()}
                 selected_model_name = st.selectbox("Select a trained model", options=list(model_options.keys()))
                 selected_run_id = model_options[selected_model_name]
@@ -143,11 +167,13 @@ def show_demo():
                                     }
                                     st.write(log_info)
 
-                                    # Thông báo và liên kết tới các tab khác
+                                    # Thông báo log predict kèm link MLflow
                                     run_id = run.info.run_id
-                                    mlflow_ui_link = f"http://127.0.0.1:5000/#/experiments/0/runs/{run_id}"
-                                    st.success(f"Predictions logged to MLflow under run name: '{run_name}' (Run ID: {run_id})")
-                                    st.write(f"View your run in MLflow UI: [Click here]({mlflow_ui_link})")
+                                    experiment_id = experiments[experiment_name]
+                                    mlflow_ui_link = f"http://127.0.0.1:5000/#/experiments/{experiment_id}/runs/{run_id}"
+                                    st.success(f"Prediction logged successfully to MLflow!\n- Experiment: '{experiment_name}'\n- Run Name: '{run_name}'\n- Run ID: {run_id}\n- Link: [View in MLflow UI]({mlflow_ui_link})")
+
+                                    # Liên kết tới các tab khác
                                     st.write("What would you like to do next?")
                                     col1, col2 = st.columns(2)
                                     with col1:
@@ -172,8 +198,8 @@ def show_demo():
             st.write("No prediction runs logged yet.")
         else:
             st.write("List of logged runs:")
-            display_runs = runs[['run_id', 'tags.mlflow.runName', 'start_time']].rename(
-                columns={'tags.mlflow.runName': 'Run Name', 'start_time': 'Start Time'}
+            display_runs = runs[['run_id', 'tags.mlflow.runName', 'start_time', 'experiment_id']].rename(
+                columns={'tags.mlflow.runName': 'Run Name', 'start_time': 'Start Time', 'experiment_id': 'Experiment ID'}
             )
             st.write(display_runs)
 
@@ -189,13 +215,14 @@ def show_demo():
                 st.write("Run Details:")
                 st.write(f"Run ID: {run_details['run_id']}")
                 st.write(f"Run Name: {run_details.get('tags.mlflow.runName', 'Unnamed')}")
+                st.write(f"Experiment ID: {run_details['experiment_id']}")
                 st.write(f"Start Time: {run_details['start_time']}")
 
                 st.write("Logged Parameters:")
                 params = mlflow.get_run(selected_run_id).data.params
                 st.write(params)
 
-                mlflow_ui_link = f"http://127.0.0.1:5000/#/experiments/0/runs/{selected_run_id}"
+                mlflow_ui_link = f"http://127.0.0.1:5000/#/experiments/{run_details['experiment_id']}/runs/{selected_run_id}"
                 st.write(f"View this run in MLflow UI: [Click here]({mlflow_ui_link})")
 
     # Tab 3: Xóa log
@@ -206,13 +233,14 @@ def show_demo():
             st.write("No runs available to delete.")
         else:
             st.write("Select runs to delete:")
-            run_options = [f"Run ID: {run['run_id']} - {run.get('tags.mlflow.runName', 'Unnamed')}" for _, run in runs.iterrows()]
-            default_delete = [f"Run ID: {st.session_state['selected_run_id']} - {runs[runs['run_id'] == st.session_state['selected_run_id']]['tags.mlflow.runName'].iloc[0]}" 
+            run_options = [f"Run ID: {run['run_id']} - {run.get('tags.mlflow.runName', 'Unnamed')} (Exp: {run['experiment_id']})" 
+                           for _, run in runs.iterrows()]
+            default_delete = [f"Run ID: {st.session_state['selected_run_id']} - {runs[runs['run_id'] == st.session_state['selected_run_id']]['tags.mlflow.runName'].iloc[0]} (Exp: {runs[runs['run_id'] == st.session_state['selected_run_id']]['experiment_id'].iloc[0]})" 
                              if 'selected_run_id' in st.session_state and st.session_state['selected_run_id'] in runs['run_id'].tolist() else None]
             runs_to_delete = st.multiselect(
                 "Choose runs",
                 options=run_options,
-                default=[d for d in default_delete if d],  # Chỉ giữ giá trị hợp lệ
+                default=[d for d in default_delete if d],
                 key="delete_runs"
             )
             if st.button("Delete Selected Runs"):
