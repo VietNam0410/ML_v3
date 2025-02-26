@@ -5,20 +5,8 @@ import mlflow.sklearn
 from common.utils import load_data
 import os
 
-def is_streamlit_cloud():
-    """Kiểm tra xem ứng dụng đang chạy trên Streamlit Cloud hay không."""
-    return 'STREAMLIT_CLOUD' in os.environ or 'streamlit_cloud' in os.environ.get('STREAMLIT_DEPLOYMENT', '').lower()
-
-def set_mlflow_tracking_uri():
-    """Thiết lập tracking URI phù hợp cho local hoặc Streamlit Cloud."""
-    if is_streamlit_cloud():
-        # Sử dụng MLflow server từ xa cho Streamlit Cloud
-        tracking_uri = "https://your-mlflow-server.com:5000"  # Thay bằng địa chỉ server MLflow của bạn
-    else:
-        # Sử dụng tracking URI cục bộ cho local
-        tracking_uri = f"file://{os.path.abspath('mlruns')}"
-    mlflow.set_tracking_uri(tracking_uri)
-    return tracking_uri
+# Thiết lập tracking URI cục bộ
+mlflow.set_tracking_uri(f"file://{os.path.abspath('mlruns')}")
 
 def get_mlflow_experiments():
     """Lấy danh sách các Experiment từ MLflow."""
@@ -31,7 +19,7 @@ def get_mlflow_experiments():
         return {}
 
 def get_mlflow_runs():
-    """Lấy danh sách các run từ MLflow."""
+    """Lấy danh sách các run từ MLflow cục bộ."""
     try:
         runs = mlflow.search_runs()
         return runs
@@ -49,9 +37,6 @@ def delete_mlflow_run(run_id):
 
 def show_demo():
     st.header("Titanic Survival Prediction Demo")
-
-    # Thiết lập tracking URI
-    tracking_uri = set_mlflow_tracking_uri()
 
     # Lấy danh sách Experiment hiện có
     experiments = get_mlflow_experiments()
@@ -185,7 +170,7 @@ def show_demo():
                                     # Thông báo log predict kèm link MLflow
                                     run_id = run.info.run_id
                                     experiment_id = experiments[experiment_name]
-                                    mlflow_ui_link = f"{tracking_uri.replace('https://', 'http://').replace('file://', 'http://')}/#experiments/{experiment_id}/runs/{run_id}"
+                                    mlflow_ui_link = f"http://127.0.0.1:5000/#/experiments/{experiment_id}/runs/{run_id}"
                                     st.success(f"Prediction logged successfully to MLflow!\n- Experiment: '{experiment_name}'\n- Run Name: '{run_name}'\n- Run ID: {run_id}\n- Link: [View in MLflow UI]({mlflow_ui_link})")
 
                                     # Liên kết tới các tab khác
@@ -237,7 +222,7 @@ def show_demo():
                 params = mlflow.get_run(selected_run_id).data.params
                 st.write(params)
 
-                mlflow_ui_link = f"{tracking_uri.replace('https://', 'http://').replace('file://', 'http://')}/#experiments/{run_details['experiment_id']}/runs/{selected_run_id}"
+                mlflow_ui_link = f"http://127.0.0.1:5000/#/experiments/{run_details['experiment_id']}/runs/{selected_run_id}"
                 st.write(f"View this run in MLflow UI: [Click here]({mlflow_ui_link})")
 
     # Tab 3: Xóa log
