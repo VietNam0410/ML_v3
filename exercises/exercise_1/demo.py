@@ -6,10 +6,9 @@ from common.utils import load_data
 import os
 
 def set_mlflow_tracking_uri():
-    """Thiết lập tracking URI cố định cho MLflow server."""
-    # Sử dụng cùng một tracking URI cho cả local và Cloud (giả sử server chạy trên 127.0.0.1:5000)
-    #tracking_uri = "http://127.0.0.1:5000" locall # Thay bằng địa chỉ thực tế nếu không dùng local
-    mlflow.set_tracking_uri("http://203.0.113.1:5000")
+    """Thiết lập tracking URI cho MLflow server từ xa trên Streamlit Cloud."""
+    # Sử dụng tracking URI từ xa cho Streamlit Cloud
+    tracking_uri = "http://203.0.113.1:5000"  # Thay bằng IP/DNS thực tế của MLflow server
     mlflow.set_tracking_uri(tracking_uri)
     return tracking_uri
 
@@ -178,7 +177,7 @@ def show_demo():
                                     # Thông báo log predict kèm link MLflow
                                     run_id = run.info.run_id
                                     experiment_id = experiments[experiment_name]
-                                    mlflow_ui_link = f"http://203.0.113.1:5000/#/experiments/{experiment_id}/runs/{run_id}"
+                                    mlflow_ui_link = f"http://203.0.113.1:5000/#/experiments/{experiment_id}/runs/{run_id}"  # Thay bằng IP/DNS thực tế của MLflow server
                                     st.success(f"Prediction logged successfully to MLflow!\n- Experiment: '{experiment_name}'\n- Run Name: '{run_name}'\n- Run ID: {run_id}\n- Link: [View in MLflow UI]({mlflow_ui_link})")
 
                                     # Liên kết tới các tab khác
@@ -230,7 +229,7 @@ def show_demo():
                 params = mlflow.get_run(selected_run_id).data.params
                 st.write(params)
 
-                mlflow_ui_link = f"http://203.0.113.1:5000/#/experiments/{run_details['experiment_id']}/runs/{selected_run_id}"
+                mlflow_ui_link = f"http://203.0.113.1:5000/#/experiments/{run_details['experiment_id']}/runs/{selected_run_id}"  # Thay bằng IP/DNS thực tế
                 st.write(f"View this run in MLflow UI: [Click here]({mlflow_ui_link})")
 
     # Tab 3: Xóa log
