@@ -1,7 +1,7 @@
 import streamlit as st
 import numpy as np
 from PIL import Image
-import cv2
+import pandas as pd
 
 def show_mnist_demo():
     st.header("Demo Nhận diện Chữ số Viết Tay MNIST 🖌️")
@@ -25,10 +25,10 @@ def show_mnist_demo():
         )
 
         if canvas_result.image_data is not None:
-            # Chuyển đổi hình ảnh từ canvas thành mảng numpy
+            # Chuyển đổi hình ảnh từ canvas thành mảng numpy bằng PIL
             image = Image.fromarray(canvas_result.image_data).convert('L')  # Chuyển thành grayscale
-            image = np.array(image.resize((28, 28)))  # Thay đổi kích thước về 28x28
-            image = image / 255.0  # Chuẩn hóa [0, 1]
+            image = image.resize((28, 28))  # Thay đổi kích thước về 28x28
+            image = np.array(image) / 255.0  # Chuẩn hóa [0, 1]
 
             # Hiển thị hình ảnh đã vẽ
             st.image(image, caption="Hình ảnh đã vẽ (28x28)", width=100)
@@ -43,7 +43,7 @@ def show_mnist_demo():
                 st.write(f"Độ tin cậy: {confidence:.2f}%")
 
                 # Lưu kết quả trong session
-                # Sửa đổi bởi Grok 3: Loại bỏ MLflow, lưu trong session_state
+                # Sửa đổi bởi Grok 3: Loại bỏ cv2, chỉ dùng PIL
                 st.session_state['mnist_prediction'] = {
                     "input_image": image,
                     "predicted_digit": predicted_digit,

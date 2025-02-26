@@ -1,9 +1,8 @@
 streamlit
 pandas
-mlflow
-scikit-learn
 tensorflow
-pillow  # Để xử lý hình ảnh trong demo
-opencv-python  # cv2 cho xử lý hình ảnh (tùy chọn, nếu cần thêm tính năng)
+pillow
 numpy
+scikit-learn
 openml
+opencv-python
