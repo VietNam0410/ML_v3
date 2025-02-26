@@ -22,38 +22,30 @@ def train_mnist():
     if experiment_name:
         mlflow.set_experiment(experiment_name)
     
-    # Kiểm tra dữ liệu đã tiền xử lý trong MLflow (thay vì session_state)
-    # Sửa đổi bởi Grok 3: Loại bỏ session_state, chỉ dùng MLflow
-    preprocess_runs = mlflow.search_runs(experiment_names=["MNIST_Preprocessing"])
-    if preprocess_runs.empty:
-        st.error("Dữ liệu MNIST đã xử lý không tìm thấy trong MLflow. Vui lòng hoàn tất tiền xử lý trong 'Tiền xử lý Dữ liệu MNIST' trước.")
+    # Kiểm tra dữ liệu đã tiền xử lý trong session
+    if 'mnist_data' not in st.session_state or st.session_state['mnist_data'] is None:
+        st.error("Dữ liệu MNIST đã xử lý không tìm thấy. Vui lòng hoàn tất tiền xử lý trong 'Tiền xử lý Dữ liệu MNIST' trước.")
         return
 
-    latest_preprocess_run_id = preprocess_runs['run_id'].iloc[0]
-    split_runs = mlflow.search_runs(experiment_names=["MNIST_Preprocessing"], filter_string=f"tags.mlflow.runName LIKE '%Split%'")
-    if split_runs.empty:
-        st.error("Dữ liệu chia tách không tìm thấy trong MLflow. Vui lòng chia tách dữ liệu trong 'Tiền xử lý Dữ liệu MNIST' trước.")
+    # Kiểm tra key 'X_train' trước khi truy cập
+    # Sửa đổi bởi Grok 3: Thêm kiểm tra chi tiết hơn cho mnist_data và các key
+    mnist_data = st.session_state['mnist_data']
+    if 'X_train' not in mnist_data or 'y_train' not in mnist_data:
+        st.error("Dữ liệu 'X_train' hoặc 'y_train' không tồn tại trong session. Vui lòng hoàn tất tiền xử lý và chia dữ liệu trong 'Tiền xử lý Dữ liệu MNIST' trước.")
         return
 
-    latest_split_run_id = split_runs['run_id'].iloc[0]
+    st.subheader("Dữ liệu MNIST đã xử lý 📝")
+    st.write("Đây là dữ liệu sau các bước tiền xử lý trong 'Tiền xử lý Dữ liệu MNIST':")
+    st.write(f"Số lượng mẫu huấn luyện: {len(mnist_data['X_train'])}")
+    st.write(f"Số lượng mẫu validation: {len(mnist_data.get('X_valid', []))}")
+    st.write(f"Số lượng mẫu kiểm tra: {len(mnist_data['X_test'])}")
 
-    # Tải dữ liệu từ MLflow
-    X_train_path = mlflow.artifacts.download_artifacts(run_id=latest_split_run_id, artifact_path="X_train.npy")
-    y_train_path = mlflow.artifacts.download_artifacts(run_id=latest_split_run_id, path="y_train.npy")
-    X_valid_path = mlflow.artifacts.download_artifacts(run_id=latest_split_run_id, path="X_valid.npy")
-    y_valid_path = mlflow.artifacts.download_artifacts(run_id=latest_split_run_id, path="y_valid.npy")
-    X_test_path = mlflow.artifacts.download_artifacts(run_id=latest_split_run_id, path="X_test.npy")
-
-    X_train = np.load(X_train_path).reshape(-1, 28 * 28)
-    y_train = np.load(y_train_path)
-    X_valid = np.load(X_valid_path).reshape(-1, 28 * 28)
-    y_valid = np.load(y_valid_path)
-    X_test = np.load(X_test_path).reshape(-1, 28 * 28)
-
-    st.subheader("Dữ liệu MNIST đã xử lý từ MLflow 📝")
-    st.write(f"Số lượng mẫu huấn luyện: {len(X_train)}")
-    st.write(f"Số lượng mẫu validation: {len(X_valid)}")
-    st.write(f"Số lượng mẫu kiểm tra: {len(X_test)}")
+    # Chuẩn bị dữ liệu: Flatten hình ảnh 28x28 thành vector 784 chiều
+    X_train = mnist_data['X_train'].reshape(-1, 28 * 28)
+    y_train = mnist_data['y_train']
+    X_valid = mnist_data.get('X_valid', mnist_data['X_test']).reshape(-1, 28 * 28)
+    y_valid = mnist_data.get('y_valid', mnist_data['y_test'])
+    X_test = mnist_data['X_test'].reshape(-1, 28 * 28)
 
     # Chuẩn hóa dữ liệu cho các mô hình
     scaler = StandardScaler()
@@ -87,7 +79,7 @@ def train_mnist():
 
     if st.button("Huấn luyện mô hình"):
         # Kiểm tra và kết thúc run hiện tại nếu có
-        # Sửa đổi bởi Grok 3: Loại bỏ session_state, chỉ dùng MLflow
+        # Sửa đổi bởi Grok 3: Thêm log huấn luyện vào MLflow
         active_run = mlflow.active_run()
         if active_run:
             mlflow.end_run()
@@ -109,13 +101,11 @@ def train_mnist():
                 st.write(f"Độ chính xác huấn luyện: {train_acc:.4f}")
                 st.write(f"Độ chính xác validation: {valid_acc:.4f}")
                 
-                # Log mô hình, metrics, và scaler vào MLflow
+                # Log mô hình và metrics vào MLflow
                 mlflow.log_params(model_params)
-                mlflow.log_param("model_type", model_choice)
                 mlflow.log_metric("train_accuracy", train_acc)
                 mlflow.log_metric("valid_accuracy", valid_acc)
                 mlflow.sklearn.log_model(model, "model", input_example=X_train_scaled[:1])
-                mlflow.sklearn.log_model(scaler, "scaler")  # Log scaler để dùng trong demo
 
             elif model_choice == "K-means (Clustering)":
                 # Huấn luyện mô hình phân cụm (không dùng nhãn)
@@ -129,9 +119,8 @@ def train_mnist():
                 st.write(f"Silhouette Score (nếu có): {silhouette:.4f}" if silhouette else "Không thể tính Silhouette Score do nhãn không đủ đa dạng.")
                 st.write("Lưu ý: K-means không dự đoán nhãn, chỉ phân chia thành cụm.")
 
-                # Log mô hình, metrics, và model_choice vào MLflow
+                # Log mô hình và metrics vào MLflow
                 mlflow.log_params(model_params)
-                mlflow.log_param("model_type", model_choice)
                 if silhouette:
                     mlflow.log_metric("silhouette_score", silhouette)
                 mlflow.sklearn.log_model(model, "model", input_example=X_train_scaled[:1])
@@ -149,14 +138,20 @@ def train_mnist():
                 st.write(f"Silhouette Score (nếu có): {silhouette:.4f}" if silhouette else "Không thể tính Silhouette Score do nhãn không đủ đa dạng.")
                 st.write("Lưu ý: DBSCAN không dự đoán nhãn, chỉ phân chia thành cụm. Giá trị -1 là noise.")
 
-                # Log mô hình, metrics, và model_choice vào MLflow
+                # Log mô hình và metrics vào MLflow
                 mlflow.log_params(model_params)
-                mlflow.log_param("model_type", model_choice)
                 if silhouette:
                     mlflow.log_metric("silhouette_score", silhouette)
                 mlflow.sklearn.log_model(model, "model", input_example=X_train_scaled[:1])
 
             st.success(f"Huấn luyện {model_choice} hoàn tất và log vào MLflow thành công! ✅")
+
+            # Lưu mô hình và metrics trong session để dùng cho demo (tùy chọn)
+            st.session_state['mnist_model'] = model
+            st.session_state['model_params'] = model_params
+            st.session_state['training_metrics'] = {"train_accuracy": train_acc if model_choice in ["SVM (Support Vector Machine)", "Decision Tree"] else None, 
+                                                  "valid_accuracy": valid_acc if model_choice in ["SVM (Support Vector Machine)", "Decision Tree"] else None,
+                                                  "silhouette_score": silhouette if model_choice in ["K-means (Clustering)", "DBSCAN (Clustering)"] else None}
 
 if __name__ == "__main__":
     train_mnist()
