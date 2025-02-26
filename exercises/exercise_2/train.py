@@ -8,6 +8,8 @@ from sklearn.metrics import accuracy_score, silhouette_score
 from sklearn.preprocessing import StandardScaler
 import mlflow
 import os
+from PIL import Image
+from streamlit_drawable_canvas import st_canvas
 
 # Thiết lập MLflow Tracking URI cục bộ
 if not os.path.exists('mlruns'):

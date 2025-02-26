@@ -1,107 +1,91 @@
 import streamlit as st
 import numpy as np
 from PIL import Image
-import pandas as pd
 import mlflow
 import os
+from streamlit_drawable_canvas import st_canvas
 
 # Thiết lập MLflow Tracking URI cục bộ
-if not os.path.exists('mlruns'):
-    os.makedirs('mlruns')
-mlflow.set_tracking_uri(f"file://{os.path.abspath('mlruns')}")
+mlruns_dir = os.path.abspath('mlruns')
+if not os.path.exists(mlruns_dir):
+    os.makedirs(mlruns_dir)
+mlflow.set_tracking_uri(f"file://{mlruns_dir}")
 
 def show_mnist_demo():
-    st.header("Demo Nhận diện Chữ số Viết Tay MNIST 🖌️")
+    st.header("Demo Nhận diện Chữ số MNIST 🖌️")
+    experiment_name = "MNIST_Training"
 
-    # Kiểm tra mô hình đã huấn luyện trong MLflow
-    experiment_name = "MNIST_Training"  # Giả định tên experiment từ train.py
-    client = mlflow.tracking.MlflowClient()
+    # Kiểm tra mô hình từ MLflow
     runs = mlflow.search_runs(experiment_names=[experiment_name])
-
     if runs.empty:
-        st.error("Không tìm thấy mô hình đã huấn luyện trong MLflow. Vui lòng huấn luyện mô hình trong 'Huấn luyện Mô hình Nhận diện Chữ số MNIST' trước.")
+        st.error("Không tìm thấy mô hình nào trong MLflow. Chạy 'train.py' trước.")
         return
 
-    # Lấy run ID gần nhất (hoặc cho người dùng chọn run)
-    latest_run_id = runs['run_id'].iloc[0]
+    run_options = {f"{run['tags.mlflow.runName']} (ID: {run['run_id'][:8]})": run['run_id'] for _, run in runs.iterrows()}
+    selected_run_name = st.selectbox("Chọn mô hình", list(run_options.keys()))
+    selected_run_id = run_options[selected_run_name]
+
     try:
-        model = mlflow.sklearn.load_model(f"runs:/{latest_run_id}/model")
+        model = mlflow.sklearn.load_model(f"runs:/{selected_run_id}/model")
+        scaler = mlflow.sklearn.load_model(f"runs:/{selected_run_id}/scaler")
+        model_type = runs[runs['run_id'] == selected_run_id]['params.model_type'].iloc[0]
+        st.write(f"Mô hình được chọn: {model_type}")
     except Exception as e:
-        st.error(f"Không thể tải mô hình từ MLflow. Lỗi: {str(e)}. Vui lòng kiểm tra MLflow hoặc huấn luyện lại mô hình.")
+        st.error(f"Không thể tải mô hình/scaler từ MLflow: {str(e)}. Run ID: {selected_run_id}")
         return
 
-    # Tạo giao diện cho người dùng vẽ chữ số
-    st.subheader("Vẽ một chữ số để nhận diện 🖋️")
-    drawing_mode = st.checkbox("Bật chế độ vẽ", value=True)
-    if drawing_mode:
-        canvas_result = st.canvas(
-            width=280,
-            height=280,
-            drawing_mode="freedraw",
-            key="canvas"
-        )
+    # Vẽ chữ số
+    st.subheader("Vẽ chữ số để nhận diện 🖋️")
+    canvas_result = st_canvas(
+        stroke_width=5,
+        stroke_color="black",
+        background_color="white",
+        width=280,
+        height=280,
+        drawing_mode="freedraw",
+        key="canvas"
+    )
 
-        if canvas_result.image_data is not None:
-            # Chuyển đổi hình ảnh từ canvas thành mảng numpy bằng PIL
-            image = Image.fromarray(canvas_result.image_data).convert('L')  # Chuyển thành grayscale
-            image = image.resize((28, 28))  # Thay đổi kích thước về 28x28
-            image = np.array(image) / 255.0  # Chuẩn hóa [0, 1]
+    if st.button("Xóa canvas"):
+        st.rerun()
 
-            # Hiển thị hình ảnh đã vẽ
-            st.image(image, caption="Hình ảnh đã vẽ (28x28)", width=100)
+    if canvas_result.image_data is not None:
+        image = Image.fromarray(canvas_result.image_data).convert('L').resize((28, 28))
+        image_array = np.array(image) / 255.0
+        st.image(image_array, caption="Hình ảnh đã vẽ", width=100)
 
-            # Dự đoán
-            if st.button("Nhận diện chữ số"):
-                # Chuẩn bị dữ liệu cho mô hình (Flatten thành vector 784 chiều)
-                input_data = image.reshape(1, 28 * 28)
-                scaler = StandardScaler()  # Giả định mô hình đã được chuẩn hóa trong train.py
-                input_data_scaled = scaler.fit_transform(input_data)
+        if st.button("Dự đoán"):
+            input_data = image_array.reshape(1, 28 * 28)
+            input_data_scaled = scaler.transform(input_data)
+            prediction = model.predict(input_data_scaled)[0]
 
-                prediction = model.predict(input_data_scaled)
-                predicted_digit = np.argmax(prediction) if model_choice in ["SVM (Support Vector Machine)", "Decision Tree"] else None
-                confidence = np.max(prediction) * 100 if model_choice in ["SVM (Support Vector Machine)", "Decision Tree"] else None
+            # Log vào MLflow
+            if mlflow.active_run():
+                mlflow.end_run()
+            with mlflow.start_run(run_name="Prediction", experiment_id=mlflow.get_experiment_by_name(experiment_name).experiment_id):
+                mlflow.log_param("model_run_id", selected_run_id)
+                mlflow.log_param("predicted_digit", prediction)
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.npy') as tmp:
+                    np.save(tmp.name, image_array)
+                    mlflow.log_artifact(tmp.name, "input_image.npy")
+                    os.unlink(tmp.name)
 
-                if predicted_digit is not None and confidence is not None:
-                    st.write(f"Dự đoán: {predicted_digit}")
-                    st.write(f"Độ tin cậy: {confidence:.2f}%")
-                else:
-                    st.write("Mô hình này là phân cụm (K-means/DBSCAN), không dự đoán nhãn. Vui lòng sử dụng SVM hoặc Decision Tree.")
+                st.success(f"Dự đoán: {prediction} (Run ID: {mlflow.active_run().info.run_id})")
 
-                # Kiểm tra và kết thúc run hiện tại nếu có
-                # Sửa đổi bởi Grok 3: Thêm log dự đoán vào MLflow
-                active_run = mlflow.active_run()
-                if active_run:
-                    mlflow.end_run()
-
-                with mlflow.start_run(run_name=f"MNIST_Prediction_{experiment_name}"):
-                    # Log dữ liệu đầu vào và kết quả dự đoán
-                    mlflow.log_param("input_image_shape", image.shape)
-                    mlflow.log_param("predicted_digit", predicted_digit if predicted_digit else "N/A")
-                    mlflow.log_param("confidence", confidence if confidence else "N/A")
-                    mlflow.log_param("model_run_id", latest_run_id)
-                    mlflow.log_text(image.tobytes(), "input_image.npy")
-
-                    st.success(f"Kết quả dự đoán đã được log vào MLflow thành công!\n- Experiment: '{experiment_name}'\n- Run ID: {mlflow.active_run().info.run_id}\n- Liên kết: [Xem trong MLflow UI](http://127.0.0.1:5000/#/experiments/{mlflow.get_experiment_by_name(experiment_name).experiment_id}/runs/{mlflow.active_run().info.run_id})")
-
-                    # Lưu kết quả trong session (tùy chọn, để hiển thị lịch sử)
-                    st.session_state['mnist_prediction'] = {
-                        "input_image": image,
-                        "predicted_digit": predicted_digit,
-                        "confidence": confidence,
-                        "timestamp": pd.Timestamp.now().isoformat()
-                    }
-
-    # Hiển thị lịch sử dự đoán (từ session hoặc MLflow)
-    st.subheader("Lịch sử Dự đoán Đã Lưu")
-    if 'mnist_prediction' in st.session_state:
-        st.write("Kết quả dự đoán gần đây (từ session):")
-        pred = st.session_state['mnist_prediction']
-        st.write(f"Chữ số dự đoán: {pred['predicted_digit'] if pred['predicted_digit'] is not None else 'N/A'}")
-        st.write(f"Độ tin cậy: {pred['confidence']:.2f}% if pred['confidence'] is not None else 'N/A'")
-        st.write(f"Thời gian: {pred['timestamp']}")
-        st.image(pred['input_image'], caption=f"Hình ảnh đã vẽ cho dự đoán {pred['predicted_digit'] if pred['predicted_digit'] is not None else 'N/A'}", width=100)
+    # Lịch sử dự đoán
+    st.subheader("Lịch sử dự đoán")
+    pred_runs = mlflow.search_runs(experiment_names=[experiment_name], filter_string="tags.mlflow.runName = 'Prediction'")
+    if not pred_runs.empty:
+        for _, run in pred_runs.iterrows():
+            digit = run.data.params.get("predicted_digit", "N/A")
+            try:
+                image_path = mlflow.artifacts.download_artifacts(run_id=run.run_id, path="input_image.npy")
+                image_data = np.load(image_path)
+                st.image(image_data, caption=f"Dự đoán: {digit}", width=100)
+            except Exception as e:
+                st.write(f"Không thể tải hình ảnh cho run {run['run_id'][:8]}: {str(e)}")
     else:
-        st.write("Chưa có dự đoán nào được lưu trong session. Xem lịch sử trong MLflow UI.")
+        st.write("Chưa có dự đoán nào được log.")
 
 if __name__ == "__main__":
     show_mnist_demo()
