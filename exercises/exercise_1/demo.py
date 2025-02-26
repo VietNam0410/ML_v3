@@ -153,7 +153,7 @@ mlflow.set_tracking_uri(f"file://{os.path.abspath('mlruns')}")
 def get_mlflow_runs():
     """Lấy danh sách các run từ MLflow cục bộ."""
     try:
-        runs = mlflow.search_runs(experiment_ids=["0"])  # Giả sử experiment_id mặc định là "0"
+        runs = mlflow.search_runs(experiment_ids=["0"])
         return runs
     except mlflow.exceptions.MlflowException as e:
         st.error(f"Failed to fetch runs from MLflow: {str(e)}")
@@ -178,38 +178,6 @@ def show_demo():
             st.error("Processed data not found. Please preprocess the data first.")
             return
 
-        # Cho người dùng chọn giá trị cụ thể cho từng cột
-        st.write("Enter values for each column to predict (Survived is the target):")
-        input_data = {}
-        for col in X_full.columns:
-            if X_full[col].dtype in ['int64', 'float64']:
-                # Cho cột số: nhập giá trị số
-                min_val = float(X_full[col].min())
-                max_val = float(X_full[col].max())
-                default_val = float(X_full[col].mean())
-                input_data[col] = st.number_input(
-                    f"Enter value for '{col}' (Range: {min_val} to {max_val})",
-                    min_value=min_val,
-                    max_value=max_val,
-                    value=default_val,
-                    key=f"input_{col}"
-                )
-            else:
-                # Cho cột categorical: chọn từ các giá trị duy nhất
-                unique_vals = X_full[col].unique().tolist()
-                input_data[col] = st.selectbox(
-                    f"Choose value for '{col}'",
-                    options=unique_vals,
-                    key=f"input_{col}"
-                )
-
-        # Tạo DataFrame từ dữ liệu người dùng nhập
-        X_selected = pd.DataFrame([input_data])
-
-        # Hiển thị dữ liệu đã chọn
-        st.write("Your Input Data for Prediction:")
-        st.write(X_selected)
-
         # Lấy danh sách mô hình từ MLflow
         runs = get_mlflow_runs()
         if runs.empty:
@@ -221,40 +189,79 @@ def show_demo():
         selected_model_name = st.selectbox("Select a trained model", options=list(model_options.keys()))
         selected_run_id = model_options[selected_model_name]
 
-        # Load mô hình từ MLflow
+        # Load mô hình từ MLflow để lấy thông tin cột huấn luyện
         try:
             model = mlflow.sklearn.load_model(f"runs:/{selected_run_id}/model")
+            # Lấy danh sách cột mà mô hình mong đợi
+            expected_columns = model.feature_names_in_ if hasattr(model, 'feature_names_in_') else X_full.columns.tolist()
         except:
             st.error(f"Failed to load model with Run ID: {selected_run_id}. Please check MLflow.")
             return
 
+        # Cho người dùng nhập dữ liệu dựa trên các cột mà mô hình mong đợi
+        st.write("Enter values for each column (based on the model's training data):")
+        input_data = {}
+        for col in expected_columns:
+            if col in X_full.columns:  # Kiểm tra cột có trong dữ liệu gốc không
+                if X_full[col].dtype in ['int64', 'float64']:
+                    min_val = float(X_full[col].min())
+                    max_val = float(X_full[col].max())
+                    default_val = float(X_full[col].mean())
+                    input_data[col] = st.number_input(
+                        f"Enter value for '{col}' (Range: {min_val} to {max_val})",
+                        min_value=min_val,
+                        max_value=max_val,
+                        value=default_val,
+                        key=f"input_{col}"
+                    )
+                else:
+                    unique_vals = X_full[col].unique().tolist()
+                    input_data[col] = st.selectbox(
+                        f"Choose value for '{col}'",
+                        options=unique_vals,
+                        key=f"input_{col}"
+                    )
+            else:
+                # Nếu cột không có trong X_full (ví dụ: từ One-Hot Encoding), mặc định giá trị 0
+                input_data[col] = 0
+
+        # Tạo DataFrame từ dữ liệu người dùng nhập
+        X_selected = pd.DataFrame([input_data])
+
+        # Hiển thị dữ liệu đã chọn
+        st.write("Your Input Data for Prediction:")
+        st.write(X_selected)
+
         # Dự đoán và log
         if st.button("Make Predictions"):
-            predictions = model.predict(X_selected)
-            result_df = pd.DataFrame({
-                "Predicted Survival": predictions
-            })
-            st.write("Prediction Result:")
-            st.write(result_df)
+            try:
+                predictions = model.predict(X_selected)
+                result_df = pd.DataFrame({
+                    "Predicted Survival": predictions
+                })
+                st.write("Prediction Result:")
+                st.write(result_df)
 
-            # Cho người dùng đặt tên run
-            run_name = st.text_input("Enter a name for this prediction run", value="Prediction_Run")
-            if st.button("Log Predictions to MLflow"):
-                with mlflow.start_run(run_name=run_name) as run:
-                    # Log dữ liệu đầu vào
-                    mlflow.log_param("input_data", input_data)
-                    mlflow.log_param("model_run_id", selected_run_id)
+                # Cho người dùng đặt tên run
+                run_name = st.text_input("Enter a name for this prediction run", value="Prediction_Run")
+                if st.button("Log Predictions to MLflow"):
+                    with mlflow.start_run(run_name=run_name) as run:
+                        # Log dữ liệu đầu vào
+                        mlflow.log_param("input_data", input_data)
+                        mlflow.log_param("model_run_id", selected_run_id)
 
-                    # Log kết quả dự đoán
-                    result_df.to_csv("temp_predictions.csv", index=False)
-                    mlflow.log_artifact("temp_predictions.csv", "predictions")
-                    os.remove("temp_predictions.csv")
+                        # Log kết quả dự đoán
+                        result_df.to_csv("temp_predictions.csv", index=False)
+                        mlflow.log_artifact("temp_predictions.csv", "predictions")
+                        os.remove("temp_predictions.csv")
 
-                    # Tạo link tới MLflow UI
-                    run_id = run.info.run_id
-                    mlflow_ui_link = f"http://localhost:5000/#/experiments/0/runs/{run_id}"
-                    st.success(f"Predictions logged to MLflow under run name: '{run_name}'")
-                    st.write(f"View your run in MLflow UI: [Click here]({mlflow_ui_link})")
+                        # Tạo link tới MLflow UI
+                        run_id = run.info.run_id
+                        mlflow_ui_link = f"http://localhost:5000/#/experiments/0/runs/{run_id}"
+                        st.success(f"Predictions logged to MLflow under run name: '{run_name}'")
+                        st.write(f"View your run in MLflow UI: [Click here]({mlflow_ui_link})")
+            except ValueError as e:
+                st.error(f"Prediction failed: {str(e)}. Ensure input data matches the model's expected columns: {expected_columns}")
 
     # Tab 2: Hiển thị thông tin log
     with tab2:
