@@ -32,14 +32,22 @@ def preprocess_data():
         st.session_state['preprocessing_steps'] = {}  # Reset steps khi upload file mới
         st.success("File đã được tải lên thành công! ✅")
 
+        # Kiểm tra kiểu dữ liệu của Name và PassengerId
+        if 'Name' in st.session_state['data'].columns:
+            if st.session_state['data']['Name'].dtype != 'object':
+                st.warning("Cột 'Name' không phải kiểu chuỗi (object). Đảm bảo dữ liệu Name là chuỗi trước khi tiếp tục.")
+        if 'PassengerId' in st.session_state['data'].columns:
+            if st.session_state['data']['PassengerId'].dtype not in ['int64', 'object']:
+                st.warning("Cột 'PassengerId' không phải kiểu số nguyên (int64) hoặc chuỗi (object). Đảm bảo dữ liệu PassengerId là số nguyên hoặc chuỗi trước khi tiếp tục.")
+
     if st.session_state['data'] is None:
         st.warning("Vui lòng tải lên file CSV để tiếp tục. ⚠️")
         return
 
-    # Hiển thị dữ liệu gốc hoặc dữ liệu đang xử lý
+    # Hiển thị dữ liệu gốc hoặc dữ liệu đang xử lý (bao gồm Name và PassengerId)
     st.subheader("Xem trước dữ liệu hiện tại 🔍")
     st.write("Đây là dữ liệu khi bạn tiến hành xử lý từng bước:")
-    st.write(st.session_state['data'].head())
+    st.write(st.session_state['data'])
 
     # Hiển thị thông tin còn thiếu
     st.subheader("Dữ liệu thiếu (Trạng thái hiện tại) ⚠️")
@@ -51,18 +59,18 @@ def preprocess_data():
     columns_to_drop = st.multiselect(
         "Chọn cột cần loại bỏ",
         options=st.session_state['data'].columns.tolist(),
-        help="Gợi ý: Loại bỏ 'Name', 'Ticket', 'PassengerId' (không hữu ích). Để lại 'Cabin' để xử lý riêng."
+        help="Gợi ý: Loại bỏ 'Ticket', 'Cabin', 'Name', 'PassengerId' nếu không cần thiết."
     )
     if st.button("Loại bỏ các cột đã chọn 🗑️"):
         if columns_to_drop:
             st.session_state['data'] = st.session_state['data'].drop(columns=columns_to_drop)
             st.session_state['preprocessing_steps']["dropped_columns"] = columns_to_drop
             st.success(f"Đã loại bỏ các cột: {', '.join(columns_to_drop)}")
-            st.write("Xem trước dữ liệu đã cập nhật (Sau khi loại bỏ):", st.session_state['data'].head())
+            st.write("Xem trước dữ liệu đã cập nhật (Sau khi loại bỏ):", st.session_state['data'])
 
     # 2. Điền giá trị thiếu
     st.write("### Bước 2: Điền giá trị thiếu ✏️")
-    missing_columns = [col for col in st.session_state['data'].columns if st.session_state['data'][col].isnull().sum() > 0]
+    missing_columns = [col for col in st.session_state['data'].columns if col not in ['Name', 'PassengerId'] and st.session_state['data'][col].isnull().sum() > 0]
     if missing_columns:
         for col in missing_columns:
             st.write(f"#### Xử lý dữ liệu thiếu ở cột '{col}'")
@@ -105,7 +113,7 @@ def preprocess_data():
                             st.success(f"Đã điền dữ liệu thiếu ở '{col}' bằng mode: {mode_value}.")
                         else:
                             st.error("Không tìm thấy mode phù hợp định dạng 'Chữ + Số'. Vui lòng thử phương pháp khác.")
-                        st.write("Xem trước dữ liệu đã cập nhật (Sau khi điền):", st.session_state['data'].head())
+                        st.write("Xem trước dữ liệu đã cập nhật (Sau khi điền):", st.session_state['data'])
 
                 elif fill_method == "Giá trị ngẫu nhiên theo định dạng Cabin":
                     def generate_cabin():
@@ -119,7 +127,7 @@ def preprocess_data():
                         )
                         st.session_state['preprocessing_steps'][f"{col}_filled"] = "random_cabin_format"
                         st.success(f"Đã điền dữ liệu thiếu ở '{col}' bằng giá trị ngẫu nhiên theo định dạng Cabin.")
-                        st.write("Xem trước dữ liệu đã cập nhật (Sau khi điền):", st.session_state['data'].head())
+                        st.write("Xem trước dữ liệu đã cập nhật (Sau khi điền):", st.session_state['data'])
 
                 elif fill_method == "Giá trị phổ biến nhất theo chữ cái":
                     # Phân tích giá trị phổ biến nhất dựa trên chữ cái đầu tiên
@@ -141,7 +149,31 @@ def preprocess_data():
                                 st.error("Không thể xác định chữ cái phổ biến nhất. Vui lòng thử phương pháp khác.")
                         else:
                             st.error("Không có giá trị Cabin hợp lệ để phân tích. Vui lòng thử phương pháp khác.")
-                        st.write("Xem trước dữ liệu đã cập nhật (Sau khi điền):", st.session_state['data'].head())
+                        st.write("Xem trước dữ liệu đã cập nhật (Sau khi điền):", st.session_state['data'])
+
+            elif col == 'Age':
+                st.info(f"Gợi ý: Dùng 'median' hoặc 'mode' cho cột 'Age' để giữ kiểu số nguyên. Median bền vững với ngoại lệ.")
+                fill_method = st.selectbox(
+                    f"Chọn phương pháp điền cho '{col}'",
+                    ["Median", "Mode", "Giá trị tùy chỉnh (số nguyên)"],
+                    key=f"fill_method_{col}"
+                )
+                if fill_method == "Giá trị tùy chỉnh (số nguyên)":
+                    custom_value = st.number_input(f"Nhập giá trị tùy chỉnh cho '{col}' (số nguyên)", min_value=0, max_value=150, value=30, step=1, key=f"custom_{col}")
+                if st.button(f"Điền giá trị cho '{col}' ✏️", key=f"fill_{col}"):
+                    if fill_method == "Median":
+                        median_value = int(st.session_state['data'][col].median()) if not pd.isna(st.session_state['data'][col].median()) else 0
+                        st.session_state['data'][col] = st.session_state['data'][col].fillna(median_value).astype(int)
+                        st.session_state['preprocessing_steps'][f"{col}_filled"] = f"median_{median_value}"
+                    elif fill_method == "Mode":
+                        mode_value = int(st.session_state['data'][col].mode()[0]) if not st.session_state['data'][col].mode().empty else 0
+                        st.session_state['data'][col] = st.session_state['data'][col].fillna(mode_value).astype(int)
+                        st.session_state['preprocessing_steps'][f"{col}_filled"] = f"mode_{mode_value}"
+                    elif fill_method == "Giá trị tùy chỉnh (số nguyên)":
+                        st.session_state['data'][col] = st.session_state['data'][col].fillna(custom_value).astype(int)
+                        st.session_state['preprocessing_steps'][f"{col}_filled"] = f"custom_{custom_value}"
+                    st.success(f"Đã điền dữ liệu thiếu ở '{col}' bằng phương pháp {fill_method.lower()} và chuyển thành số nguyên.")
+                    st.write("Xem trước dữ liệu đã cập nhật (Sau khi điền):", st.session_state['data'])
 
             elif st.session_state['data'][col].dtype in ['int64', 'float64']:
                 st.info(f"Gợi ý: Dùng 'median' hoặc 'mean' cho dữ liệu số. Median bền vững với ngoại lệ.")
@@ -163,7 +195,7 @@ def preprocess_data():
                         st.session_state['data'][col] = st.session_state['data'][col].fillna(custom_value)
                         st.session_state['preprocessing_steps'][f"{col}_filled"] = f"custom_{custom_value}"
                     st.success(f"Đã điền dữ liệu thiếu ở '{col}' bằng phương pháp {fill_method.lower()}.")
-                    st.write("Xem trước dữ liệu đã cập nhật (Sau khi điền):", st.session_state['data'].head())
+                    st.write("Xem trước dữ liệu đã cập nhật (Sau khi điền):", st.session_state['data'])
             else:
                 st.info(f"Gợi ý: Dùng 'mode' cho dữ liệu phân loại.")
                 fill_method = st.selectbox(
@@ -181,13 +213,13 @@ def preprocess_data():
                         st.session_state['data'][col] = st.session_state['data'][col].fillna(custom_value)
                         st.session_state['preprocessing_steps'][f"{col}_filled"] = f"custom_{custom_value}"
                     st.success(f"Đã điền dữ liệu thiếu ở '{col}' bằng phương pháp {fill_method.lower()}.")
-                    st.write("Xem trước dữ liệu đã cập nhật (Sau khi điền):", st.session_state['data'].head())
+                    st.write("Xem trước dữ liệu đã cập nhật (Sau khi điền):", st.session_state['data'])
     else:
-        st.success("Không phát hiện dữ liệu thiếu trong tập dữ liệu hiện tại. ✅")
+        st.success("Không phát hiện dữ liệu thiếu trong tập dữ liệu hiện tại (ngoại trừ 'Name' và 'PassengerId'). ✅")
 
     # 3. Chuyển đổi dữ liệu phân loại
     st.write("### Bước 3: Chuyển đổi cột phân loại 🔠")
-    categorical_cols = [col for col in st.session_state['data'].columns if st.session_state['data'][col].dtype == 'object']
+    categorical_cols = [col for col in st.session_state['data'].columns if col not in ['Name', 'PassengerId'] and st.session_state['data'][col].dtype == 'object']
     if categorical_cols:
         for col in categorical_cols:
             st.write(f"#### Chuyển đổi '{col}'")
@@ -202,20 +234,20 @@ def preprocess_data():
                     le = LabelEncoder()
                     st.session_state['data'][col] = le.fit_transform(st.session_state['data'][col])
                     st.session_state['preprocessing_steps'][f"{col}_encoded"] = "label"
-                    st.success(f"Đã áp dụng Label Encoding cho '{col}'.")
+                    st.success(f"Đã áp dụng Label Encoding cho '{col}'. Cột 'Name' và 'PassengerId' không bị ảnh hưởng.")
                 elif encoding_method == "One-Hot Encoding":
                     st.session_state['data'] = pd.get_dummies(st.session_state['data'], columns=[col], prefix=col)
                     st.session_state['preprocessing_steps'][f"{col}_encoded"] = "one-hot"
-                    st.success(f"Đã áp dụng One-Hot Encoding cho '{col}'.")
-                st.write("Xem trước dữ liệu đã cập nhật (Sau khi mã hóa):", st.session_state['data'].head())
+                    st.success(f"Đã áp dụng One-Hot Encoding cho '{col}'. Cột 'Name' và 'PassengerId' không bị ảnh hưởng.")
+                st.write("Xem trước dữ liệu đã cập nhật (Sau khi mã hóa):", st.session_state['data'])
     else:
-        st.success("Không có cột phân loại nào để mã hóa.")
+        st.success("Không có cột phân loại nào (ngoại trừ 'Name' và 'PassengerId') để mã hóa.")
 
     # 4. Chuẩn hóa dữ liệu
     st.write("### Bước 4: Chuẩn hóa/Dữ liệu quy mô 🔢")
-    numerical_cols = [col for col in st.session_state['data'].columns if st.session_state['data'][col].dtype in ['int64', 'float64']]
+    numerical_cols = [col for col in st.session_state['data'].columns if col not in ['Name', 'PassengerId'] and st.session_state['data'][col].dtype in ['int64', 'float64']]
     if numerical_cols:
-        st.info("Gợi ý: 'Min-Max Scaling' (0-1) cho phạm vi giới hạn; 'Standard Scaling' (mean=0, std=1) cho dữ liệu chuẩn.")
+        st.info("Gợi ý: 'Min-Max Scaling' (0-1) cho phạm vi giới hạn; 'Standard Scaling' (mean=0, std=1) cho dữ liệu chuẩn. Cột 'Name' và 'PassengerId' sẽ không được chuẩn hóa.")
         scaling_method = st.selectbox(
             "Chọn phương pháp chuẩn hóa",
             ["Min-Max Scaling", "Standard Scaling"]
@@ -236,12 +268,12 @@ def preprocess_data():
                     st.session_state['data'][cols_to_scale] = scaler.fit_transform(st.session_state['data'][cols_to_scale])
                     st.session_state['preprocessing_steps']["scaling"] = "standard"
                 st.session_state['preprocessing_steps']["scaled_columns"] = cols_to_scale
-                st.success(f"Đã áp dụng {scaling_method} cho các cột: {', '.join(cols_to_scale)}")
-                st.write("Xem trước dữ liệu đã cập nhật (Sau khi chuẩn hóa):", st.session_state['data'].head())
+                st.success(f"Đã áp dụng {scaling_method} cho các cột: {', '.join(cols_to_scale)}. Cột 'Name' và 'PassengerId' không bị ảnh hưởng.")
+                st.write("Xem trước dữ liệu đã cập nhật (Sau khi chuẩn hóa):", st.session_state['data'])
             else:
                 st.warning("Không có cột nào được chọn để chuẩn hóa.")
     else:
-        st.success("Không có cột số nào để chuẩn hóa.")
+        st.success("Không có cột số nào (ngoại trừ 'Name' và 'PassengerId') để chuẩn hóa.")
 
     # 5. Lưu và log dữ liệu đã tiền xử lý
     st.write("### Bước 5: Lưu dữ liệu đã tiền xử lý 💾")
@@ -250,9 +282,9 @@ def preprocess_data():
         save_data(st.session_state['data'], processed_file)
         st.success(f"Dữ liệu đã được lưu vào {processed_file} 💾")
 
-        # Hiển thị dữ liệu cuối cùng trước khi lưu
+        # Hiển thị dữ liệu cuối cùng trước khi lưu (bao gồm Name và PassengerId)
         st.subheader("Xem trước dữ liệu đã xử lý cuối cùng (Trước khi lưu) 🔚")
-        st.write(st.session_state['data'].head())
+        st.write(st.session_state['data'])
 
         # Log các tham số tiền xử lý vào MLflow
         log_preprocessing_params(st.session_state['preprocessing_steps'])
@@ -261,7 +293,7 @@ def preprocess_data():
         # Xác nhận dữ liệu đã lưu đúng
         saved_data = load_data(processed_file)
         st.write("Xác nhận: Dữ liệu tải lại từ file đã lưu trùng khớp với các lựa chọn tiền xử lý của bạn:")
-        st.write(saved_data.head())
+        st.write(saved_data)
 
 if __name__ == "__main__":
     preprocess_data()
