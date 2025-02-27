@@ -199,13 +199,17 @@ def train_model():
 
     if st.button("Huấn luyện mô hình"):
         if use_cv and 'fold_configs' in st.session_state and st.session_state['fold_configs']:
-            selected_fold_train = st.selectbox("Chọn fold để huấn luyện", list(st.session_state['fold_configs'].keys()))
-            config = st.session_state['fold_configs'][selected_fold_train]
-            X_train = config['X_train']
-            X_valid = config['X_valid']
-            y_train = config['y_train']
-            y_valid = config['y_valid']
-            train_source = f"Fold {selected_fold_train} (đã tùy chỉnh)"
+            # Tổng hợp dữ liệu từ tất cả các fold
+            all_X_train = pd.concat([config['X_train'] for config in st.session_state['fold_configs'].values()])
+            all_y_train = pd.concat([config['y_train'] for config in st.session_state['fold_configs'].values()])
+            all_X_valid = pd.concat([config['X_valid'] for config in st.session_state['fold_configs'].values()])
+            all_y_valid = pd.concat([config['y_valid'] for config in st.session_state['fold_configs'].values()])
+
+            X_train = all_X_train.reset_index(drop=True)
+            X_valid = all_X_valid.reset_index(drop=True)
+            y_train = all_y_train.reset_index(drop=True)
+            y_valid = all_y_valid.reset_index(drop=True)
+            train_source = "Tất cả các fold (đã tùy chỉnh)"
         else:
             X_train = st.session_state['X_train_initial']
             X_valid = st.session_state['X_valid']
