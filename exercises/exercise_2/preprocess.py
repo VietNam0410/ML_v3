@@ -3,7 +3,6 @@ import numpy as np
 import openml
 from sklearn.model_selection import train_test_split
 from tensorflow.keras.datasets import mnist  # Backup nếu OpenML không tải được
-import pandas as pd
 
 # Sử dụng st.cache_data để cache dữ liệu, tăng tốc độ load
 @st.cache_data
@@ -29,50 +28,33 @@ def load_mnist_from_openml():
 def preprocess_mnist():
     st.header("Tiền xử lý Dữ liệu MNIST Chữ số Viết Tay 🖌️")
 
-    # Cho người dùng đặt tên Experiment (giờ chỉ để hiển thị, không dùng MLflow)
+    # Cho người dùng đặt tên Experiment (chỉ để hiển thị)
     experiment_name = st.text_input("Nhập tên Experiment cho tiền xử lý", value="MNIST_Preprocessing")
-    
-    # Khởi tạo session_state để lưu dữ liệu
-    if 'mnist_data' not in st.session_state:
-        st.session_state['mnist_data'] = None
-    if 'preprocessing_steps' not in st.session_state:
-        st.session_state['preprocessing_steps'] = {}
 
     # Tải dữ liệu MNIST từ OpenML (sử dụng cache)
-    if st.button("Tải dữ liệu MNIST từ OpenML"):
-        # Sửa đổi bởi Grok 3: Tải trực tiếp từ OpenML, sử dụng st.cache_data, đảm bảo trả về numpy array
-        X_full, y_full = load_mnist_from_openml()
-        
-        # Lưu dữ liệu đầy đủ vào session
-        st.session_state['mnist_data'] = {
-            'X_full': X_full,
-            'y_full': y_full
-        }
-        st.session_state['preprocessing_steps'] = {"loaded": True}
-        st.success("Dữ liệu MNIST đã được tải từ OpenML và chuẩn hóa thành công! ✅")
+    if 'X_full' not in st.session_state or 'y_full' not in st.session_state:
+        st.session_state['X_full'], st.session_state['y_full'] = load_mnist_from_openml()
+        st.success("Dữ liệu MNIST đã được tải và chuẩn hóa thành công! ✅")
 
-    # Kiểm tra và hiển thị trạng thái session
-    # Sửa đổi bởi Grok 3: Thêm kiểm tra chi tiết hơn và hướng dẫn người dùng
-    if 'mnist_data' not in st.session_state or st.session_state['mnist_data'] is None:
-        st.warning("Vui lòng nhấn nút 'Tải dữ liệu MNIST từ OpenML' để tải dữ liệu trước khi tiếp tục. ⚠️")
-        return
+    # Kiểm tra dữ liệu
+    X_full = st.session_state['X_full']
+    y_full = st.session_state['y_full']
+    total_samples = len(X_full)
 
-    # Kiểm tra key 'X_full' và 'y_full' trước khi truy cập
-    # Sửa đổi bởi Grok 3: Thêm kiểm tra key chi tiết hơn
-    mnist_data = st.session_state['mnist_data']
-    if 'X_full' not in mnist_data or 'y_full' not in mnist_data:
-        st.error("Dữ liệu 'X_full' hoặc 'y_full' không tồn tại trong session. Vui lòng tải lại dữ liệu MNIST bằng cách nhấn nút 'Tải dữ liệu MNIST từ OpenML'.")
-        return
-
-    # Hiển thị thông tin dữ liệu đầy đủ
+    # Hiển thị thông tin dữ liệu đầy đủ (không hiển thị hình ảnh)
     st.subheader("Thông tin Dữ liệu MNIST Đầy đủ 🔍")
-    st.write(f"Tổng số lượng mẫu: {len(mnist_data['X_full'])}")
-    st.write("Hình ảnh mẫu (đầu tiên):")
-    st.image(mnist_data['X_full'][0].reshape(28, 28), caption=f"Chữ số: {mnist_data['y_full'][0]}", width=100)
+    st.write(f"Tổng số lượng mẫu: {total_samples}")
 
-    # Chia tách dữ liệu theo lựa chọn của người dùng
-    # Sửa đổi bởi Grok 3: Cho phép người dùng chọn kích thước tập dữ liệu, đảm bảo sử dụng numpy array
+    # Cho phép người dùng chọn số lượng mẫu và tỷ lệ chia
     st.subheader("Chia tách Dữ liệu (Tùy chọn) 🔀")
+    max_samples = st.slider("Chọn số lượng mẫu tối đa (0 để dùng toàn bộ)", 0, total_samples, total_samples, step=100)
+    
+    if max_samples == 0:
+        max_samples = total_samples
+    elif max_samples > total_samples:
+        st.error(f"Số lượng mẫu ({max_samples}) vượt quá tổng số mẫu có sẵn ({total_samples}). Đặt lại về {total_samples}.")
+        max_samples = total_samples
+
     train_size = st.slider("Chọn kích thước tập huấn luyện (%)", min_value=10, max_value=90, value=70, step=5) / 100
     val_size = st.slider("Chọn kích thước tập validation (%)", min_value=0, max_value=30, value=15, step=5) / 100
     test_size = 1 - train_size - val_size  # Tính kích thước tập kiểm tra
@@ -81,14 +63,27 @@ def preprocess_mnist():
         st.error("Tổng kích thước tập huấn luyện và validation không được vượt quá 100%. Vui lòng điều chỉnh lại.")
     else:
         if st.button("Chia dữ liệu"):
-            X_full = mnist_data['X_full']
-            y_full = mnist_data['y_full']
+            # Lấy mẫu ngẫu nhiên nếu max_samples < total_samples
+            if max_samples < total_samples:
+                indices = np.random.choice(total_samples, max_samples, replace=False)
+                X_subset = X_full[indices]
+                y_subset = y_full[indices]
+            else:
+                X_subset = X_full
+                y_subset = y_full
 
             # Chia dữ liệu thành tập huấn luyện, validation, và kiểm tra
-            X_temp, X_test, y_temp, y_test = train_test_split(X_full, y_full, test_size=test_size, random_state=42)
+            X_temp, X_test, y_temp, y_test = train_test_split(X_subset, y_subset, test_size=test_size, random_state=42)
             X_train, X_valid, y_train, y_valid = train_test_split(X_temp, y_temp, test_size=val_size/(train_size+val_size), random_state=42)
 
-            # Lưu vào session_state
+            # Hiển thị kết quả chia dữ liệu
+            st.success(f"Đã chia dữ liệu với số lượng mẫu: {max_samples}. Kích thước: Huấn luyện {train_size*100:.1f}%, Validation {val_size*100:.1f}%, Kiểm tra {test_size*100:.1f}%! ✅")
+
+            st.write(f"Tập huấn luyện: {len(X_train)} mẫu")
+            st.write(f"Tập validation: {len(X_valid)} mẫu")
+            st.write(f"Tập kiểm tra: {len(X_test)} mẫu")
+
+            # Lưu dữ liệu vào session_state để sử dụng trong train.py
             st.session_state['mnist_data'] = {
                 'X_train': X_train,
                 'y_train': y_train,
@@ -97,27 +92,6 @@ def preprocess_mnist():
                 'X_test': X_test,
                 'y_test': y_test
             }
-            st.session_state['preprocessing_steps']['split'] = {
-                "train_size": train_size,
-                "val_size": val_size,
-                "test_size": test_size
-            }
-            st.success(f"Đã chia dữ liệu với kích thước: Huấn luyện {train_size*100:.1f}%, Validation {val_size*100:.1f}%, Kiểm tra {test_size*100:.1f}% và lưu trong session! ✅")
-
-            st.write(f"Tập huấn luyện: {len(X_train)} mẫu")
-            st.write(f"Tập validation: {len(X_valid)} mẫu")
-            st.write(f"Tập kiểm tra: {len(X_test)} mẫu")
-            st.write("Hình ảnh mẫu từ tập huấn luyện:", X_train[0].reshape(28, 28))
-            st.write(f"Chữ số thực tế: {y_train[0]}")
-
-    # Lưu dữ liệu trong session (không lưu file)
-    st.write("### Lưu dữ liệu đã tiền xử lý trong session 💾")
-    if st.button("Lưu dữ liệu đã xử lý trong session 📋"):
-        st.session_state['processed_mnist'] = st.session_state['mnist_data'].copy()
-        st.success("Dữ liệu đã được lưu trong session! ✅")
-
-        st.subheader("Xem trước dữ liệu đã xử lý trong session 🔚")
-        st.write(st.session_state['processed_mnist'])
 
 if __name__ == "__main__":
     preprocess_mnist()
