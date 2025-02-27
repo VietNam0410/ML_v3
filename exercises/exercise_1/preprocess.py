@@ -268,7 +268,7 @@ def preprocess_data():
                     st.session_state['data'][cols_to_scale] = scaler.fit_transform(st.session_state['data'][cols_to_scale])
                     st.session_state['preprocessing_steps']["scaling"] = "standard"
                 st.session_state['preprocessing_steps']["scaled_columns"] = cols_to_scale
-                st.success(f"Đã áp dụng {scaling_method} cho các cột: {', '.join(cols_to_scale)}. Cột 'Name' và 'PassengerId' không bị ảnh hưởng.")
+                st.success(f"Đã áp dụng {scaling_method} cho các cột: {', '.join(cols_to_scale)}")
                 st.write("Xem trước dữ liệu đã cập nhật (Sau khi chuẩn hóa):", st.session_state['data'])
             else:
                 st.warning("Không có cột nào được chọn để chuẩn hóa.")
