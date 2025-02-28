@@ -7,3 +7,4 @@ scikit-learn
 openml
 mlflow
 streamlit-drawable-canvas
+dagshub
