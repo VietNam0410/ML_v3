@@ -47,17 +47,17 @@ def display_exercise():
         
         with tab3:
             show_mnist_demo()
-    elif exercise == "Exercise 3: Clustering Algorithms (K-Means & DBSCAN)":
-        tab1, tab2, tab3 = st.tabs(["Preprocess Data", "Train Model", "Demo"])
+    # elif exercise == "Exercise 3: Clustering Algorithms (K-Means & DBSCAN)":
+    #     tab1, tab2, tab3 = st.tabs(["Preprocess Data", "Train Model", "Demo"])
         
-        with tab1:
-            preprocess_mnist_clustering()
+    #     with tab1:
+    #         preprocess_mnist_clustering()
         
-        with tab2:
-            train_clustering()
+    #     with tab2:
+    #         train_clustering()
         
-        with tab3:
-            show_clustering_demo()
+    #     with tab3:
+    #         show_clustering_demo()
 
 
 if __name__ == "__main__":
