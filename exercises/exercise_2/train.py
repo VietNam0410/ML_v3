@@ -23,6 +23,15 @@ except Exception as e:
     st.error(f"Không thể kết nối với DagsHub: {str(e)}. Sử dụng MLflow cục bộ.")
     mlflow.set_tracking_uri(f"file://{os.path.abspath('mlruns')}")
 
+# Hàm chuẩn hóa dữ liệu với cache
+@st.cache_data
+def scale_data(X_train, X_valid):
+    """Chuẩn hóa dữ liệu bằng StandardScaler và lưu vào bộ nhớ đệm."""
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_valid_scaled = scaler.transform(X_valid)
+    return X_train_scaled, X_valid_scaled, scaler
+
 def train_mnist():
     st.header("Huấn luyện Mô hình Nhận diện Chữ số MNIST 🧮")
 
@@ -49,14 +58,14 @@ def train_mnist():
     st.write(f"Số lượng mẫu validation: {len(mnist_data.get('X_valid', []))}")
     st.write(f"Số lượng mẫu kiểm tra: {len(mnist_data['X_test'])}")
 
+    # Reshape dữ liệu từ (n, 28, 28, 1) thành (n, 784)
     X_train = mnist_data['X_train'].reshape(-1, 28 * 28)
     y_train = mnist_data['y_train']
     X_valid = mnist_data.get('X_valid', mnist_data['X_test']).reshape(-1, 28 * 28)
     y_valid = mnist_data.get('y_valid', mnist_data['y_test'])
 
-    scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    X_valid_scaled = scaler.transform(X_valid)
+    # Chuẩn hóa dữ liệu với cache
+    X_train_scaled, X_valid_scaled, scaler = scale_data(X_train, X_valid)
 
     st.subheader("Xây dựng và Huấn luyện Mô hình 🎯")
     model_choice = st.selectbox(

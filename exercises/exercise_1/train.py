@@ -25,6 +25,12 @@ except Exception as e:
     st.error(f"Không thể kết nối với DagsHub: {str(e)}. Sử dụng MLflow cục bộ.")
     mlflow.set_tracking_uri(f"file://{os.path.abspath('mlruns')}")
 
+# Hàm tải dữ liệu với cache
+@st.cache_data
+def load_cached_data(file_path):
+    """Tải dữ liệu từ file CSV và lưu vào bộ nhớ đệm."""
+    return load_data(file_path)
+
 def train_model():
     st.header("Train Titanic Survival Model 🧑‍🚀")
 
@@ -38,7 +44,7 @@ def train_model():
 
     processed_file = "exercises/exercise_1/data/processed/titanic_processed.csv"
     try:
-        data = load_data(processed_file)
+        data = load_cached_data(processed_file)  # Sử dụng hàm có cache
         st.subheader("Dữ liệu đã tiền xử lý (Sau khi xử lý) 📝")
         st.write("Đây là dữ liệu sau các bước tiền xử lý trong 'Tiền xử lý dữ liệu Titanic':")
         st.write(data.head())

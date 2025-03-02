@@ -21,8 +21,10 @@ except Exception as e:
     st.error(f"Không thể kết nối với DagsHub: {str(e)}. Sử dụng MLflow cục bộ.")
     mlflow.set_tracking_uri(f"file://{os.path.abspath('mlruns')}")
 
+# Hàm tải dữ liệu MNIST với cache
 @st.cache_data
 def load_mnist_from_openml():
+    """Tải dữ liệu MNIST từ OpenML hoặc TensorFlow và lưu vào bộ nhớ đệm."""
     try:
         dataset = openml.datasets.get_dataset(554)
         X, y, _, _ = dataset.get_data(target='class')
@@ -47,6 +49,7 @@ def preprocess_mnist():
     if experiment_name:
         mlflow.set_experiment(experiment_name)
 
+    # Tải dữ liệu từ bộ nhớ đệm nếu chưa có trong session_state
     if 'X_full' not in st.session_state or 'y_full' not in st.session_state:
         st.session_state['X_full'], st.session_state['y_full'] = load_mnist_from_openml()
         st.success("Dữ liệu MNIST đã được tải và chuẩn hóa thành công! ✅")
@@ -99,6 +102,11 @@ def preprocess_mnist():
         st.write(f"Tập validation: {len(X_valid)} mẫu")
         st.write(f"Tập kiểm tra: {len(X_test)} mẫu")
 
+        # Đảm bảo thư mục tồn tại trước khi lưu file
+        processed_dir = "exercises/exercise_mnist/data/processed"
+        os.makedirs(processed_dir, exist_ok=True)
+        processed_file = os.path.join(processed_dir, "mnist_processed.npz")
+
         with mlflow.start_run(run_name=f"MNIST_Data_Split_{max_samples}_Samples") as run:
             mlflow.log_param("max_samples", max_samples)
             mlflow.log_param("train_size", train_size)
@@ -108,13 +116,13 @@ def preprocess_mnist():
             mlflow.log_metric("valid_samples", len(X_valid))
             mlflow.log_metric("test_samples", len(X_test))
 
-            processed_file = "mnist_processed.npz"
+            # Lưu dữ liệu đã chia vào file .npz
             np.savez(processed_file, 
                      X_train=X_train, y_train=y_train,
                      X_valid=X_valid, y_valid=y_valid,
                      X_test=X_test, y_test=y_test)
             mlflow.log_artifact(processed_file, artifact_path="processed_data")
-            os.remove(processed_file)
+            os.remove(processed_file)  # Xóa file tạm sau khi log
 
             run_id = run.info.run_id
             dagshub_link = f"https://dagshub.com/{DAGSHUB_USERNAME}/{DAGSHUB_REPO}/experiments/#/experiment/{experiment_name}/{run_id}"

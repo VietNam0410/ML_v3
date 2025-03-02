@@ -25,6 +25,12 @@ except Exception as e:
     st.error(f"Không thể kết nối với DagsHub: {str(e)}. Sử dụng MLflow cục bộ.")
     mlflow.set_tracking_uri(f"file://{os.path.abspath('mlruns')}")
 
+# Hàm tải dữ liệu với cache
+@st.cache_data
+def load_cached_data(file_buffer):
+    """Tải dữ liệu từ file CSV và lưu vào bộ nhớ đệm."""
+    return pd.read_csv(file_buffer)
+
 def preprocess_data():
     st.header("Tiền xử lý dữ liệu Titanic 🛳️")
 
@@ -47,7 +53,7 @@ def preprocess_data():
     # Upload file CSV
     uploaded_file = st.file_uploader("Tải lên file CSV Titanic 📂", type=["csv"])
     if uploaded_file and st.session_state['data'] is None:
-        st.session_state['data'] = pd.read_csv(uploaded_file)
+        st.session_state['data'] = load_cached_data(uploaded_file)  # Sử dụng hàm có cache
         st.session_state['preprocessing_steps'] = {}
         st.success("File đã được tải lên thành công! ✅")
 
@@ -136,7 +142,7 @@ def preprocess_data():
                     
                     if st.button(f"Điền giá trị cho '{col}' ✏️", key=f"fill_{col}"):
                         st.session_state['data'][col] = st.session_state['data'].apply(
-                            lambda x: x if pd.notnull(x) else generate_cabin()
+                            lambda row: row[col] if pd.notnull(row[col]) else generate_cabin(), axis=1
                         )
                         st.session_state['preprocessing_steps'][f"{col}_filled"] = "random_cabin_format"
                         st.success(f"Đã điền dữ liệu thiếu ở '{col}' bằng giá trị ngẫu nhiên.")
@@ -235,7 +241,7 @@ def preprocess_data():
             st.write(f"#### Chuyển đổi '{col}'")
             st.info("Gợi ý: 'Label Encoding' cho dữ liệu có thứ tự; 'One-Hot Encoding' cho dữ liệu không thứ tự.")
             encoding_method = st.selectbox(
-                f"Chọn phương phápAccess mã hóa cho '{col}'",
+                f"Chọn phương pháp mã hóa cho '{col}'",
                 ["Label Encoding", "One-Hot Encoding"],
                 key=f"encode_{col}"
             )

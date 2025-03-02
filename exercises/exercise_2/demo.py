@@ -22,6 +22,12 @@ except Exception as e:
     st.error(f"Không thể kết nối với DagsHub: {str(e)}. Sử dụng MLflow cục bộ.")
     mlflow.set_tracking_uri(f"file://{os.path.abspath('mlruns')}")
 
+# Hàm tải runs từ MLflow với cache
+@st.cache_data
+def get_mlflow_runs(experiment_name):
+    """Tải danh sách runs từ MLflow và lưu vào bộ nhớ đệm."""
+    return mlflow.search_runs(experiment_names=[experiment_name])
+
 def show_mnist_demo():
     st.header("Demo Nhận diện Chữ số MNIST 🖌️")
     experiment_name = "MNIST_Training"
@@ -31,7 +37,7 @@ def show_mnist_demo():
         st.info("Đã đóng run MLflow đang hoạt động trước đó.")
 
     if 'mnist_model' not in st.session_state or st.session_state['mnist_model'] is None:
-        runs = mlflow.search_runs(experiment_names=[experiment_name])
+        runs = get_mlflow_runs(experiment_name)  # Sử dụng hàm có cache
         if runs.empty:
             st.error("Không tìm thấy mô hình nào trong MLflow. Vui lòng chạy 'train.py' trước.")
             return
@@ -98,6 +104,8 @@ def show_mnist_demo():
                 if 'prediction_count' not in st.session_state:
                     st.session_state['prediction_count'] = 0
                 st.session_state['prediction_count'] += 1
+                # Xóa cache runs sau khi thêm dự đoán mới
+                get_mlflow_runs.clear()
 
     else:
         uploaded_file = st.file_uploader("Tải lên ảnh chữ số (PNG/JPG/JPEG)", type=["png", "jpg", "jpeg"])
@@ -128,6 +136,8 @@ def show_mnist_demo():
                 if 'prediction_count' not in st.session_state:
                     st.session_state['prediction_count'] = 0
                 st.session_state['prediction_count'] += 1
+                # Xóa cache runs sau khi thêm dự đoán mới
+                get_mlflow_runs.clear()
 
     st.subheader("Lịch sử dự đoán")
     pred_runs = mlflow.search_runs(experiment_names=[experiment_name], filter_string="tags.mlflow.runName like 'Prediction%'")

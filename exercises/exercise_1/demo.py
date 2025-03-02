@@ -20,7 +20,16 @@ except Exception as e:
     st.error(f"Không thể kết nối với DagsHub: {str(e)}. Sử dụng MLflow cục bộ.")
     mlflow.set_tracking_uri(f"file://{os.path.abspath('mlruns')}")
 
-def get_mlflow_experiments():
+# Hàm tải dữ liệu với cache
+@st.cache_data
+def load_cached_data(file_path):
+    """Tải dữ liệu từ file CSV và lưu vào bộ nhớ đệm."""
+    return load_data(file_path)
+
+# Hàm lấy danh sách experiment với cache
+@st.cache_data
+def get_mlflow_experiments_cached():
+    """Lấy danh sách các experiment từ MLflow và lưu vào bộ nhớ đệm."""
     try:
         client = mlflow.tracking.MlflowClient()
         experiments = client.search_experiments()
@@ -29,7 +38,10 @@ def get_mlflow_experiments():
         st.error(f"Không thể lấy danh sách các experiment từ MLflow: {str(e)}")
         return {}
 
-def get_mlflow_runs():
+# Hàm lấy danh sách runs với cache
+@st.cache_data
+def get_mlflow_runs_cached():
+    """Lấy danh sách các run từ MLflow và lưu vào bộ nhớ đệm."""
     try:
         runs = mlflow.search_runs()
         return runs
@@ -51,7 +63,7 @@ def show_demo():
         mlflow.end_run()
         st.info("Đã đóng run MLflow đang hoạt động trước đó.")
 
-    experiments = get_mlflow_experiments()
+    experiments = get_mlflow_experiments_cached()  # Sử dụng hàm có cache
     experiment_options = list(experiments.keys()) if experiments else ["Titanic_Demo"]
     experiment_name = st.selectbox(
         "Chọn hoặc nhập tên Experiment cho Demo",
@@ -68,12 +80,12 @@ def show_demo():
         st.subheader("Bước 1: Tùy chỉnh Dữ liệu Nhập cho Dự đoán")
         processed_file = "exercises/exercise_1/data/processed/titanic_processed.csv"
         try:
-            data = load_data(processed_file)
+            data = load_cached_data(processed_file)  # Sử dụng hàm có cache
             X_full = data.drop(columns=['Survived', 'Name'] if 'Name' in data.columns else ['Survived'])
         except FileNotFoundError:
             st.error("Dữ liệu đã xử lý không tìm thấy. Vui lòng tiền xử lý dữ liệu trước.")
         else:
-            runs = get_mlflow_runs()
+            runs = get_mlflow_runs_cached()  # Sử dụng hàm có cache
             if runs.empty:
                 st.error("Không tìm thấy mô hình đã huấn luyện trong MLflow. Vui lòng huấn luyện mô hình trước.")
             else:
@@ -184,7 +196,7 @@ def show_demo():
 
     with tab2:
         st.subheader("Kết quả Dự đoán Đã Log")
-        runs = get_mlflow_runs()
+        runs = get_mlflow_runs_cached()  # Sử dụng hàm có cache
         if runs.empty:
             st.write("Chưa có run dự đoán nào được log.")
         else:
@@ -217,7 +229,7 @@ def show_demo():
 
     with tab3:
         st.subheader("Xóa Log Không Cần Thiết")
-        runs = get_mlflow_runs()
+        runs = get_mlflow_runs_cached()  # Sử dụng hàm có cache
         if runs.empty:
             st.write("Không có run nào để xóa.")
         else:
@@ -237,6 +249,8 @@ def show_demo():
                     run_id = run_str.split("ID Run: ")[1].split(" - ")[0]
                     delete_mlflow_run(run_id)
                 st.success("Các run đã chọn đã được xóa. Làm mới trang để cập nhật danh sách.")
+                # Xóa cache sau khi xóa run để đảm bảo dữ liệu được cập nhật
+                get_mlflow_runs_cached.clear()
 
 if __name__ == "__main__":
     show_demo()

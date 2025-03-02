@@ -21,7 +21,7 @@ except Exception as e:
     st.error(f"Không thể kết nối với DagsHub: {str(e)}. Sử dụng MLflow cục bộ.")
     mlflow.set_tracking_uri(f"file://{os.path.abspath('mlruns')}")
 
-@st.cache_data
+
 def load_mnist_from_openml():
     try:
         dataset = openml.datasets.get_dataset(554)
