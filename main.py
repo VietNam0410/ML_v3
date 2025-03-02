@@ -1,6 +1,6 @@
 import streamlit as st
-# from exercises.exercise_1.preprocess import preprocess_data
-from ml_v3.exercises.exercise_1.preprocess import preprocess_data
+from exercises.exercise_1.preprocess import preprocess_data
+# from ml_v3.exercises.exercise_1.preprocess import preprocess_data
 from exercises.exercise_1.train import train_model
 from exercises.exercise_1.demo import show_demo
 from exercises.exercise_2.preprocess import preprocess_mnist
