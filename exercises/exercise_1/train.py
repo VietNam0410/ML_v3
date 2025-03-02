@@ -13,31 +13,29 @@ import dagshub
 
 # Thiết lập thông tin DagsHub
 DAGSHUB_USERNAME = "VietNam0410"
-DAGSHUB_REPO = "vn0410"  # Sử dụng repo bạn cung cấp
-DAGSHUB_TOKEN = "22fd02345f8ff45482a20960058627630acaf190"
+DAGSHUB_REPO = "vn0410"
 
-# Khởi tạo kết nối với DagsHub
-dagshub.init(repo_owner=DAGSHUB_USERNAME, repo_name=DAGSHUB_REPO, mlflow=True)
-
-# Thiết lập MLflow tracking URI với DagsHub (thay vì cục bộ)
-mlflow.set_tracking_uri(f"https://dagshub.com/{DAGSHUB_USERNAME}/{DAGSHUB_REPO}.mlflow")
-os.environ["MLFLOW_TRACKING_USERNAME"] = DAGSHUB_USERNAME
-os.environ["MLFLOW_TRACKING_PASSWORD"] = DAGSHUB_TOKEN
+try:
+    dagshub.init(repo_owner=DAGSHUB_USERNAME, repo_name=DAGSHUB_REPO, mlflow=True)
+    mlflow.set_tracking_uri(f"https://dagshub.com/{DAGSHUB_USERNAME}/{DAGSHUB_REPO}.mlflow")
+    os.environ["MLFLOW_TRACKING_USERNAME"] = DAGSHUB_USERNAME
+    os.environ["MLFLOW_TRACKING_PASSWORD"] = os.getenv("MLFLOW_TRACKING_PASSWORD", "")
+    st.success("Đã kết nối với DagsHub thành công!")
+except Exception as e:
+    st.error(f"Không thể kết nối với DagsHub: {str(e)}. Sử dụng MLflow cục bộ.")
+    mlflow.set_tracking_uri(f"file://{os.path.abspath('mlruns')}")
 
 def train_model():
     st.header("Train Titanic Survival Model 🧑‍🚀")
 
-    # Đóng bất kỳ run nào đang hoạt động để tránh xung đột
     if mlflow.active_run():
         mlflow.end_run()
         st.info("Đã đóng run MLflow đang hoạt động trước đó.")
 
-    # Cho người dùng đặt tên Experiment
     experiment_name = st.text_input("Enter Experiment Name for Training", value="Titanic_Training")
     if experiment_name:
         mlflow.set_experiment(experiment_name)
 
-    # Đọc file đã tiền xử lý
     processed_file = "exercises/exercise_1/data/processed/titanic_processed.csv"
     try:
         data = load_data(processed_file)
@@ -48,11 +46,9 @@ def train_model():
         st.error("Dữ liệu đã xử lý không tìm thấy. Vui lòng hoàn tất tiền xử lý trong 'Tiền xử lý dữ liệu Titanic' trước.")
         return
 
-    # Chia dữ liệu thành X và y
     X = data.drop(columns=['Survived'])
     y = data['Survived']
 
-    # 1. Chia dữ liệu train/test/validation
     st.subheader("Chia dữ liệu 🔀")
     test_size = st.slider("Chọn kích thước tập kiểm tra (%)", min_value=10, max_value=50, value=20, step=5) / 100
     remaining_size = 1 - test_size
@@ -69,7 +65,6 @@ def train_model():
             X_temp, y_temp, test_size=valid_size / (1 - test_size), random_state=42
         )
 
-        # Hiển thị kết quả chia dữ liệu
         st.write(f"Tập huấn luyện ban đầu: {len(X_train_initial)} mẫu ({train_size*100:.1f}%)")
         st.write(f"Tập validation: {len(X_valid)} mẫu ({valid_size*100:.1f}%)")
         st.write(f"Tập kiểm tra: {len(X_test)} mẫu ({test_size*100:.1f}%)")
@@ -77,17 +72,15 @@ def train_model():
         st.write("Dữ liệu validation (X_valid):", X_valid.head())
         st.write("Dữ liệu kiểm tra (X_test):", X_test.head())
 
-        # Log vào MLflow (với DagsHub)
         with mlflow.start_run(run_name="Data_Split") as run:
             mlflow.log_param("test_size", test_size)
             mlflow.log_param("valid_size", valid_size)
             mlflow.log_param("train_size", train_size)
             run_id = run.info.run_id
-            st.success("Dữ liệu đã được chia và log vào DagsHub ✅.")
             dagshub_link = f"https://dagshub.com/{DAGSHUB_USERNAME}/{DAGSHUB_REPO}/experiments/#/experiment/{experiment_name}/{run_id}"
+            st.success("Dữ liệu đã được chia và log vào MLflow ✅.")
             st.markdown(f"Xem chi tiết tại: [DagsHub Experiment]({dagshub_link})")
 
-        # Lưu dữ liệu vào session để dùng sau
         st.session_state['X_train_initial'] = X_train_initial
         st.session_state['X_valid'] = X_valid
         st.session_state['X_test'] = X_test
@@ -95,7 +88,6 @@ def train_model():
         st.session_state['y_valid'] = y_valid
         st.session_state['y_test'] = y_test
 
-    # 2. Cross Validation
     st.subheader("Cross Validation (Tùy chọn) 🔄")
     use_cv = st.checkbox("Sử dụng Cross Validation")
     if use_cv:
@@ -105,11 +97,9 @@ def train_model():
 
         k_folds = st.slider("Chọn số lượng folds (k)", min_value=2, max_value=10, value=5)
 
-        # Khởi tạo danh sách tỷ lệ valid cho từng fold (tổng = 100%)
         if 'valid_sizes' not in st.session_state:
-            st.session_state['valid_sizes'] = [20] * k_folds  # Mặc định 20% cho mỗi fold
+            st.session_state['valid_sizes'] = [20] * k_folds
 
-        # Slider cho từng fold, tổng tỷ lệ valid phải bằng 100%
         st.write("Phân bổ tỷ lệ tập valid cho từng fold (tổng = 100%)")
         valid_sizes = []
         total_valid = 0
@@ -140,20 +130,17 @@ def train_model():
             fold_configs = {}
             fold_indices = list(kf.split(X_train_initial))
 
-            # Tạo và tùy chỉnh từng fold với tỷ lệ valid đã chọn
             for fold, (train_idx, valid_idx) in enumerate(fold_indices):
                 fold_num = fold + 1
                 X_remaining = X_train_initial.iloc[train_idx.tolist() + valid_idx.tolist()]
                 y_remaining = y_train_initial.iloc[train_idx.tolist() + valid_idx.tolist()]
 
-                valid_size_fold_relative = valid_sizes[fold] / 100  # Chuyển về tỷ lệ (0-1)
+                valid_size_fold_relative = valid_sizes[fold] / 100
 
-                # Chia dữ liệu cho fold này
                 X_train_fold, X_valid_fold, y_train_fold, y_valid_fold = train_test_split(
                     X_remaining, y_remaining, test_size=valid_size_fold_relative, random_state=42
                 )
 
-                # Lưu cấu hình fold
                 fold_configs[fold_num] = {
                     "X_train": X_train_fold,
                     "y_train": y_train_fold,
@@ -165,9 +152,8 @@ def train_model():
                 }
 
             st.session_state['fold_configs'] = fold_configs
-            st.session_state['valid_sizes'] = valid_sizes  # Cập nhật tỷ lệ valid đã chọn
+            st.session_state['valid_sizes'] = valid_sizes
 
-            # Hiển thị tổng quan tất cả các fold đã tùy chỉnh
             st.subheader("Tổng quan các Fold đã tùy chỉnh")
             fold_summary = []
             for fold_num, config in fold_configs.items():
@@ -180,7 +166,6 @@ def train_model():
             fold_summary_df = pd.DataFrame(fold_summary)
             st.write(fold_summary_df)
 
-            # Log tổng quan folds vào MLflow (với DagsHub)
             with mlflow.start_run(run_name=f"CV_{k_folds}_Folds_Summary") as run:
                 mlflow.log_param("k_folds", k_folds)
                 for i, size in enumerate(valid_sizes):
@@ -190,11 +175,10 @@ def train_model():
                     mlflow.log_metric(f"fold_{row['Fold']}_valid_size", row["Valid Size"])
                     mlflow.log_metric(f"fold_{row['Fold']}_test_size", row["Test Size"])
                 run_id = run.info.run_id
-                st.success(f"Tạo và tùy chỉnh {k_folds}-fold cross validation, log vào DagsHub ✅.")
                 dagshub_link = f"https://dagshub.com/{DAGSHUB_USERNAME}/{DAGSHUB_REPO}/experiments/#/experiment/{experiment_name}/{run_id}"
+                st.success(f"Tạo và tùy chỉnh {k_folds}-fold cross validation, log vào MLflow ✅.")
                 st.markdown(f"Xem chi tiết tại: [DagsHub Experiment]({dagshub_link})")
 
-    # 3. Huấn luyện mô hình
     st.subheader("Huấn luyện mô hình 🎯")
     if 'X_train_initial' not in st.session_state:
         st.warning("Vui lòng chia dữ liệu trước khi huấn luyện.")
@@ -205,7 +189,6 @@ def train_model():
         ["Random Forest", "Logistic Regression", "Polynomial Regression"]
     )
 
-    # Tham số cho từng mô hình
     if model_choice == "Random Forest":
         n_estimators = st.slider("Số lượng cây (n_estimators)", 10, 200, 100, step=10)
         max_depth = st.slider("Độ sâu tối đa", 1, 20, 10, step=1)
@@ -221,7 +204,6 @@ def train_model():
 
     if st.button("Huấn luyện mô hình"):
         if use_cv and 'fold_configs' in st.session_state and st.session_state['fold_configs']:
-            # Tổng hợp dữ liệu từ tất cả các fold
             all_X_train = pd.concat([config['X_train'] for config in st.session_state['fold_configs'].values()])
             all_y_train = pd.concat([config['y_train'] for config in st.session_state['fold_configs'].values()])
             all_X_valid = pd.concat([config['X_valid'] for config in st.session_state['fold_configs'].values()])
@@ -240,7 +222,6 @@ def train_model():
             train_source = "Dữ liệu ban đầu"
 
         with mlflow.start_run(run_name=f"{model_choice}_Titanic") as run:
-            # Khởi tạo mô hình dựa trên lựa chọn
             if model_choice == "Random Forest":
                 model = RandomForestClassifier(**model_params)
             elif model_choice == "Logistic Regression":
@@ -251,27 +232,24 @@ def train_model():
                     ("logistic", LogisticRegression(C=model_params["C"], random_state=42))
                 ])
 
-            # Huấn luyện mô hình
             model.fit(X_train, y_train)
             train_score = model.score(X_train, y_train)
             valid_score = model.score(X_valid, y_valid)
 
-            # Hiển thị thông tin
             st.write(f"Mô hình đã chọn: {model_choice}")
             st.write(f"Nguồn dữ liệu huấn luyện: {train_source}")
             st.write(f"Tham số: {model_params}")
             st.write(f"Độ chính xác huấn luyện: {train_score:.4f}")
             st.write(f"Độ chính xác validation: {valid_score:.4f}")
 
-            # Log vào MLflow (với DagsHub)
             mlflow.log_params(model_params)
             mlflow.log_param("train_source", train_source)
             mlflow.log_metric("train_accuracy", train_score)
             mlflow.log_metric("valid_accuracy", valid_score)
             mlflow.sklearn.log_model(model, "model")
             run_id = run.info.run_id
-            st.success(f"Huấn luyện {model_choice} hoàn tất và log vào DagsHub ✅.")
             dagshub_link = f"https://dagshub.com/{DAGSHUB_USERNAME}/{DAGSHUB_REPO}/experiments/#/experiment/{experiment_name}/{run_id}"
+            st.success(f"Huấn luyện {model_choice} hoàn tất và log vào MLflow ✅.")
             st.markdown(f"Xem chi tiết tại: [DagsHub Experiment]({dagshub_link})")
 
 if __name__ == "__main__":

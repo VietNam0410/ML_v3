@@ -12,16 +12,18 @@ import datetime
 
 # Thiết lập thông tin DagsHub
 DAGSHUB_USERNAME = "VietNam0410"
-DAGSHUB_REPO = "vn0410"  # Sử dụng repo bạn cung cấp
-DAGSHUB_TOKEN = "22fd02345f8ff45482a20960058627630acaf190"
+DAGSHUB_REPO = "vn0410"  # Thay bằng repo thực tế nếu khác
 
-# Khởi tạo kết nối với DagsHub
-dagshub.init(repo_owner=DAGSHUB_USERNAME, repo_name=DAGSHUB_REPO, mlflow=True)
-
-# Thiết lập MLflow tracking URI với DagsHub
-mlflow.set_tracking_uri(f"https://dagshub.com/{DAGSHUB_USERNAME}/{DAGSHUB_REPO}.mlflow")
-os.environ["MLFLOW_TRACKING_USERNAME"] = DAGSHUB_USERNAME
-os.environ["MLFLOW_TRACKING_PASSWORD"] = DAGSHUB_TOKEN
+# Khởi tạo kết nối với DagsHub với xử lý lỗi
+try:
+    dagshub.init(repo_owner=DAGSHUB_USERNAME, repo_name=DAGSHUB_REPO, mlflow=True)
+    mlflow.set_tracking_uri(f"https://dagshub.com/{DAGSHUB_USERNAME}/{DAGSHUB_REPO}.mlflow")
+    os.environ["MLFLOW_TRACKING_USERNAME"] = DAGSHUB_USERNAME
+    os.environ["MLFLOW_TRACKING_PASSWORD"] = os.getenv("MLFLOW_TRACKING_PASSWORD", "")
+    st.success("Đã kết nối với DagsHub thành công!")
+except Exception as e:
+    st.error(f"Không thể kết nối với DagsHub: {str(e)}. Sử dụng MLflow cục bộ.")
+    mlflow.set_tracking_uri(f"file://{os.path.abspath('mlruns')}")
 
 def preprocess_data():
     st.header("Tiền xử lý dữ liệu Titanic 🛳️")
@@ -233,7 +235,7 @@ def preprocess_data():
             st.write(f"#### Chuyển đổi '{col}'")
             st.info("Gợi ý: 'Label Encoding' cho dữ liệu có thứ tự; 'One-Hot Encoding' cho dữ liệu không thứ tự.")
             encoding_method = st.selectbox(
-                f"Chọn phương pháp mã hóa cho '{col}'",
+                f"Chọn phương phápAccess mã hóa cho '{col}'",
                 ["Label Encoding", "One-Hot Encoding"],
                 key=f"encode_{col}"
             )
@@ -283,12 +285,10 @@ def preprocess_data():
     else:
         st.success("Không có cột số nào (ngoại trừ 'Name' và 'PassengerId') để chuẩn hóa.")
 
-    # 5. Lưu và log dữ liệu với DagsHub
-    st.write("### Bước 5: Lưu dữ liệu và log vào DagsHub 💾")
-    # Cho người dùng đặt tên run ID ngắn gọn hoặc tự động tạo
+    # 5. Lưu và log dữ liệu với MLflow
+    st.write("### Bước 5: Lưu dữ liệu và log 💾")
     run_id_input = st.text_input("Nhập tên Run ID (để trống để tự động tạo)", value="", max_chars=10, help="Tên ngắn gọn, ví dụ: 'Run1'")
-    if st.button("Lưu dữ liệu đã xử lý và log vào DagsHub 📋"):
-        # Đảm bảo không có run nào đang hoạt động trước khi bắt đầu
+    if st.button("Lưu dữ liệu đã xử lý và log 📋"):
         if mlflow.active_run():
             mlflow.end_run()
             st.info("Đã đóng run MLflow đang hoạt động trước khi bắt đầu log mới.")
@@ -301,41 +301,27 @@ def preprocess_data():
         st.subheader("Xem trước dữ liệu đã xử lý cuối cùng 🔚")
         st.write(st.session_state['data'])
 
-        # Tạo run ID tự động nếu người dùng không nhập
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         run_name = run_id_input if run_id_input else f"Run_{timestamp[-6:]}"
 
-        # Bắt đầu một run mới và log params, metrics, artifacts
         try:
             with mlflow.start_run(run_name=run_name) as run:
-                # Lấy thời gian bắt đầu log
                 log_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-                # Log các tham số tiền xử lý
                 log_preprocessing_params(st.session_state['preprocessing_steps'])
-
-                # Log artifact
                 mlflow.log_artifact(processed_file, artifact_path="processed_data")
-
-                # Log thêm các tham số
                 mlflow.log_param("num_rows", len(st.session_state['data']))
                 mlflow.log_param("num_columns", len(st.session_state['data'].columns))
-
-                # Log metrics
                 mlflow.log_metric("missing_values_before", missing_info.sum())
                 mlflow.log_metric("missing_values_after", st.session_state['data'].isnull().sum().sum())
                 mlflow.log_metric("missing_values_handled", missing_info.sum() - st.session_state['data'].isnull().sum().sum())
 
-                # Lấy run ID để tạo link
                 run_id = run.info.run_id
-
-            # Tạo đường link đến DagsHub experiment
-            dagshub_link = f"https://dagshub.com/{DAGSHUB_USERNAME}/{DAGSHUB_REPO}/experiments/#/experiment/{experiment_name}/{run_id}"
-            st.success(f"Đã log dữ liệu vào DagsHub thành công lúc {log_time}! 📊")
-            st.markdown(f"Xem chi tiết tại: [DagsHub Experiment]({dagshub_link})")
+                dagshub_link = f"https://dagshub.com/{DAGSHUB_USERNAME}/{DAGSHUB_REPO}/experiments/#/experiment/{experiment_name}/{run_id}"
+                st.success(f"Đã log dữ liệu thành công lúc {log_time}! 📊")
+                st.markdown(f"Xem chi tiết tại: [DagsHub Experiment]({dagshub_link})")
 
         except Exception as e:
-            st.error(f"Lỗi khi log vào DagsHub: {str(e)}")
+            st.error(f"Lỗi khi log: {str(e)}")
 
         saved_data = load_data(processed_file)
         st.write("Xác nhận: Dữ liệu tải lại từ file đã lưu:", saved_data)

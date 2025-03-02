@@ -8,19 +8,19 @@ import dagshub
 
 # Thiết lập thông tin DagsHub
 DAGSHUB_USERNAME = "VietNam0410"
-DAGSHUB_REPO = "vn0410"  # Sử dụng repo bạn cung cấp
-DAGSHUB_TOKEN = "22fd02345f8ff45482a20960058627630acaf190"
+DAGSHUB_REPO = "vn0410"
 
-# Khởi tạo kết nối với DagsHub
-dagshub.init(repo_owner=DAGSHUB_USERNAME, repo_name=DAGSHUB_REPO, mlflow=True)
-
-# Thiết lập MLflow tracking URI với DagsHub (thay vì cục bộ)
-mlflow.set_tracking_uri(f"https://dagshub.com/{DAGSHUB_USERNAME}/{DAGSHUB_REPO}.mlflow")
-os.environ["MLFLOW_TRACKING_USERNAME"] = DAGSHUB_USERNAME
-os.environ["MLFLOW_TRACKING_PASSWORD"] = DAGSHUB_TOKEN
+try:
+    dagshub.init(repo_owner=DAGSHUB_USERNAME, repo_name=DAGSHUB_REPO, mlflow=True)
+    mlflow.set_tracking_uri(f"https://dagshub.com/{DAGSHUB_USERNAME}/{DAGSHUB_REPO}.mlflow")
+    os.environ["MLFLOW_TRACKING_USERNAME"] = DAGSHUB_USERNAME
+    os.environ["MLFLOW_TRACKING_PASSWORD"] = os.getenv("MLFLOW_TRACKING_PASSWORD", "")
+    st.success("Đã kết nối với DagsHub thành công!")
+except Exception as e:
+    st.error(f"Không thể kết nối với DagsHub: {str(e)}. Sử dụng MLflow cục bộ.")
+    mlflow.set_tracking_uri(f"file://{os.path.abspath('mlruns')}")
 
 def get_mlflow_experiments():
-    """Lấy danh sách các Experiment từ MLflow."""
     try:
         client = mlflow.tracking.MlflowClient()
         experiments = client.search_experiments()
@@ -30,7 +30,6 @@ def get_mlflow_experiments():
         return {}
 
 def get_mlflow_runs():
-    """Lấy danh sách các run từ MLflow DagsHub."""
     try:
         runs = mlflow.search_runs()
         return runs
@@ -39,7 +38,6 @@ def get_mlflow_runs():
         return pd.DataFrame()
 
 def delete_mlflow_run(run_id):
-    """Xóa một run từ MLflow."""
     try:
         mlflow.delete_run(run_id)
         st.success(f"Đã xóa run có ID: {run_id}")
@@ -49,16 +47,12 @@ def delete_mlflow_run(run_id):
 def show_demo():
     st.header("Dự đoán Sinh tồn Titanic")
 
-    # Đóng bất kỳ run nào đang hoạt động để tránh xung đột
     if mlflow.active_run():
         mlflow.end_run()
         st.info("Đã đóng run MLflow đang hoạt động trước đó.")
 
-    # Lấy danh sách Experiment hiện có
     experiments = get_mlflow_experiments()
     experiment_options = list(experiments.keys()) if experiments else ["Titanic_Demo"]
-
-    # Cho người dùng chọn hoặc nhập tên Experiment
     experiment_name = st.selectbox(
         "Chọn hoặc nhập tên Experiment cho Demo",
         options=experiment_options,
@@ -68,14 +62,10 @@ def show_demo():
     if experiment_name:
         mlflow.set_experiment(experiment_name)
 
-    # Tạo các tab
     tab1, tab2, tab3 = st.tabs(["Dự đoán", "Xem Kết quả Đã Log", "Xóa Log"])
 
-    # Tab 1: Dự đoán
     with tab1:
         st.subheader("Bước 1: Tùy chỉnh Dữ liệu Nhập cho Dự đoán")
-
-        # Load dữ liệu đã tiền xử lý để lấy thông tin cột
         processed_file = "exercises/exercise_1/data/processed/titanic_processed.csv"
         try:
             data = load_data(processed_file)
@@ -83,7 +73,6 @@ def show_demo():
         except FileNotFoundError:
             st.error("Dữ liệu đã xử lý không tìm thấy. Vui lòng tiền xử lý dữ liệu trước.")
         else:
-            # Lấy danh sách mô hình từ MLflow
             runs = get_mlflow_runs()
             if runs.empty:
                 st.error("Không tìm thấy mô hình đã huấn luyện trong MLflow. Vui lòng huấn luyện mô hình trước.")
@@ -93,14 +82,12 @@ def show_demo():
                 selected_model_name = st.selectbox("Chọn một mô hình đã huấn luyện", options=list(model_options.keys()))
                 selected_run_id = model_options[selected_model_name]
 
-                # Load mô hình từ MLflow để lấy thông tin cột huấn luyện
                 try:
                     model = mlflow.sklearn.load_model(f"runs:/{selected_run_id}/model")
                     expected_columns = model.feature_names_in_ if hasattr(model, 'feature_names_in_') else X_full.columns.tolist()
                 except:
                     st.error(f"Không thể tải mô hình với ID Run: {selected_run_id}. Vui lòng kiểm tra MLflow.")
                 else:
-                    # Cho người dùng nhập dữ liệu với kiểm soát miền giá trị và kiểu dữ liệu
                     st.write("Nhập giá trị cho từng cột (dựa trên dữ liệu huấn luyện của mô hình):")
                     input_data = {}
                     for col in expected_columns:
@@ -111,7 +98,7 @@ def show_demo():
                                     min_value=0,
                                     max_value=150,
                                     value=int(X_full[col].mean()) if not pd.isna(X_full[col].mean()) else 0,
-                                    step=1,  # Đảm bảo chỉ nhập số nguyên
+                                    step=1,
                                     key=f"input_{col}"
                                 )
                             elif col == 'Sex':
@@ -138,34 +125,25 @@ def show_demo():
                                     key=f"input_{col}"
                                 )
                         else:
-                            input_data[col] = 0  # Cột từ One-Hot Encoding không có trong X_full
+                            input_data[col] = 0
 
-                    # Tạo DataFrame từ dữ liệu người dùng nhập
                     X_selected = pd.DataFrame([input_data])
-
-                    # Hiển thị dữ liệu đã chọn
                     st.write("Dữ liệu Nhập của Bạn cho Dự đoán:")
                     st.write(X_selected)
 
-                    # Dự đoán và log
                     if st.button("Thực hiện Dự đoán"):
                         try:
                             predictions = model.predict(X_selected)
-                            result_df = pd.DataFrame({
-                                "Dự đoán Sinh tồn": predictions
-                            })
+                            result_df = pd.DataFrame({"Dự đoán Sinh tồn": predictions})
                             st.write("Kết quả Dự đoán:")
                             st.write(result_df)
 
-                            # Hiển thị lại thông tin nhập
                             st.write("Dữ liệu Nhập của Bạn (Tóm tắt):")
                             st.write(pd.DataFrame([input_data]))
 
-                            # Cho người dùng đặt tên run
                             run_name = st.text_input("Nhập tên cho run dự đoán này", value="Run_Dự_đoán")
                             if st.button("Log Dự đoán vào MLflow"):
                                 with mlflow.start_run(run_name=run_name) as run:
-                                    # Log tất cả thông tin dưới dạng parameters
                                     for col, value in input_data.items():
                                         mlflow.log_param(f"input_{col}", value)
                                     mlflow.log_param("model_run_id", selected_run_id)
@@ -173,7 +151,6 @@ def show_demo():
                                     mlflow.log_param("run_name", run_name)
                                     mlflow.log_param("run_id", run.info.run_id)
 
-                                    # Hiển thị bản log
                                     st.write("Thông tin Đã Log:")
                                     log_info = {
                                         "Tên Run": run_name,
@@ -184,29 +161,27 @@ def show_demo():
                                     }
                                     st.write(log_info)
 
-                                    # Thông báo log predict kèm link DagsHub
                                     run_id = run.info.run_id
                                     dagshub_link = f"https://dagshub.com/{DAGSHUB_USERNAME}/{DAGSHUB_REPO}/experiments/#/experiment/{experiment_name}/{run_id}"
-                                    st.success(f"Dự đoán đã được log thành công vào DagsHub!\n- Experiment: '{experiment_name}'\n- Tên Run: '{run_name}'\n- ID Run: {run_id}\n- Link: [Xem trong DagsHub UI]({dagshub_link})")
+                                    st.success(f"Dự đoán đã được log thành công!\n- Experiment: '{experiment_name}'\n- Tên Run: '{run_name}'\n- ID Run: {run_id}")
+                                    st.markdown(f"Xem chi tiết tại: [DagsHub Experiment]({dagshub_link})")
 
-                                    # Liên kết tới các tab khác
                                     st.write("Bạn muốn làm gì tiếp theo?")
                                     col1, col2 = st.columns(2)
                                     with col1:
                                         if st.button("Xem run này trong 'Xem Kết quả Đã Log'"):
                                             st.session_state['selected_run_id'] = run_id
                                             st.session_state['active_tab'] = 1
-                                            st.info("Vui lòng chuyển sang tab 'Xem Kết quả Đã Log' để xem run này.")
+                                            st.info("Vui lòng chuyển sang tab 'Xem Kết quả Đã Log'.")
                                     with col2:
                                         if st.button("Xóa run này trong 'Xóa Log'"):
                                             st.session_state['selected_run_id'] = run_id
                                             st.session_state['active_tab'] = 2
-                                            st.info("Vui lòng chuyển sang tab 'Xóa Log' để xóa run này.")
+                                            st.info("Vui lòng chuyển sang tab 'Xóa Log'.")
 
                         except ValueError as e:
-                            st.error(f"Dự đoán thất bại: {str(e)}. Đảm bảo dữ liệu nhập khớp với các cột mong đợi của mô hình: {expected_columns}")
+                            st.error(f"Dự đoán thất bại: {str(e)}. Đảm bảo dữ liệu nhập khớp với các cột: {expected_columns}")
 
-    # Tab 2: Hiển thị thông tin log
     with tab2:
         st.subheader("Kết quả Dự đoán Đã Log")
         runs = get_mlflow_runs()
@@ -219,7 +194,6 @@ def show_demo():
             )
             st.write(display_runs)
 
-            # Tự động chọn run vừa log nếu có trong session_state
             default_run = st.session_state.get('selected_run_id', runs['run_id'].iloc[0])
             selected_run_id = st.selectbox(
                 "Chọn một run để xem chi tiết",
@@ -239,9 +213,8 @@ def show_demo():
                 st.write(params)
 
                 dagshub_link = f"https://dagshub.com/{DAGSHUB_USERNAME}/{DAGSHUB_REPO}/experiments/#/experiment/{experiment_name}/{selected_run_id}"
-                st.write(f"Xem run này trong DagsHub UI: [Nhấn vào đây]({dagshub_link})")
+                st.markdown(f"Xem run này trong DagsHub UI: [Nhấn vào đây]({dagshub_link})")
 
-    # Tab 3: Xóa log
     with tab3:
         st.subheader("Xóa Log Không Cần Thiết")
         runs = get_mlflow_runs()
