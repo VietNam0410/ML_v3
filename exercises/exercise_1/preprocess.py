@@ -10,9 +10,18 @@ import string
 import dagshub
 import datetime
 
-# Khởi tạo kết nối với DagsHub bằng DagsHub client
-dagshub.init(repo_owner='VietNam0410', repo_name='my-first-repo', mlflow=True)
-# Lưu ý: Đảm bảo bạn đã chạy `dagshub login` trong terminal trước để xác thực.
+# Thiết lập thông tin DagsHub
+DAGSHUB_USERNAME = "VietNam0410"
+DAGSHUB_REPO = "vn0410"  # Sử dụng repo bạn cung cấp
+DAGSHUB_TOKEN = "22fd02345f8ff45482a20960058627630acaf190"
+
+# Khởi tạo kết nối với DagsHub
+dagshub.init(repo_owner=DAGSHUB_USERNAME, repo_name=DAGSHUB_REPO, mlflow=True)
+
+# Thiết lập MLflow tracking URI với DagsHub
+mlflow.set_tracking_uri(f"https://dagshub.com/{DAGSHUB_USERNAME}/{DAGSHUB_REPO}.mlflow")
+os.environ["MLFLOW_TRACKING_USERNAME"] = DAGSHUB_USERNAME
+os.environ["MLFLOW_TRACKING_PASSWORD"] = DAGSHUB_TOKEN
 
 def preprocess_data():
     st.header("Tiền xử lý dữ liệu Titanic 🛳️")
@@ -321,7 +330,7 @@ def preprocess_data():
                 run_id = run.info.run_id
 
             # Tạo đường link đến DagsHub experiment
-            dagshub_link = f"https://dagshub.com/VietNam0410/my-first-repo/experiments/#/experiment/{experiment_name}/{run_id}"
+            dagshub_link = f"https://dagshub.com/{DAGSHUB_USERNAME}/{DAGSHUB_REPO}/experiments/#/experiment/{experiment_name}/{run_id}"
             st.success(f"Đã log dữ liệu vào DagsHub thành công lúc {log_time}! 📊")
             st.markdown(f"Xem chi tiết tại: [DagsHub Experiment]({dagshub_link})")
 

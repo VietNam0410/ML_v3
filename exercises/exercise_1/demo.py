@@ -4,9 +4,20 @@ import mlflow
 import mlflow.sklearn
 from common.utils import load_data
 import os
+import dagshub
 
-# Thiết lập tracking URI cục bộ
-mlflow.set_tracking_uri(f"file://{os.path.abspath('mlruns')}")
+# Thiết lập thông tin DagsHub
+DAGSHUB_USERNAME = "VietNam0410"
+DAGSHUB_REPO = "vn0410"  # Sử dụng repo bạn cung cấp
+DAGSHUB_TOKEN = "22fd02345f8ff45482a20960058627630acaf190"
+
+# Khởi tạo kết nối với DagsHub
+dagshub.init(repo_owner=DAGSHUB_USERNAME, repo_name=DAGSHUB_REPO, mlflow=True)
+
+# Thiết lập MLflow tracking URI với DagsHub (thay vì cục bộ)
+mlflow.set_tracking_uri(f"https://dagshub.com/{DAGSHUB_USERNAME}/{DAGSHUB_REPO}.mlflow")
+os.environ["MLFLOW_TRACKING_USERNAME"] = DAGSHUB_USERNAME
+os.environ["MLFLOW_TRACKING_PASSWORD"] = DAGSHUB_TOKEN
 
 def get_mlflow_experiments():
     """Lấy danh sách các Experiment từ MLflow."""
@@ -19,7 +30,7 @@ def get_mlflow_experiments():
         return {}
 
 def get_mlflow_runs():
-    """Lấy danh sách các run từ MLflow cục bộ."""
+    """Lấy danh sách các run từ MLflow DagsHub."""
     try:
         runs = mlflow.search_runs()
         return runs
@@ -37,6 +48,11 @@ def delete_mlflow_run(run_id):
 
 def show_demo():
     st.header("Dự đoán Sinh tồn Titanic")
+
+    # Đóng bất kỳ run nào đang hoạt động để tránh xung đột
+    if mlflow.active_run():
+        mlflow.end_run()
+        st.info("Đã đóng run MLflow đang hoạt động trước đó.")
 
     # Lấy danh sách Experiment hiện có
     experiments = get_mlflow_experiments()
@@ -168,11 +184,10 @@ def show_demo():
                                     }
                                     st.write(log_info)
 
-                                    # Thông báo log predict kèm link MLflow
+                                    # Thông báo log predict kèm link DagsHub
                                     run_id = run.info.run_id
-                                    experiment_id = experiments[experiment_name]
-                                    mlflow_ui_link = f"http://127.0.0.1:5000/#/experiments/{experiment_id}/runs/{run_id}"
-                                    st.success(f"Dự đoán đã được log thành công vào MLflow!\n- Experiment: '{experiment_name}'\n- Tên Run: '{run_name}'\n- ID Run: {run_id}\n- Link: [Xem trong MLflow UI]({mlflow_ui_link})")
+                                    dagshub_link = f"https://dagshub.com/{DAGSHUB_USERNAME}/{DAGSHUB_REPO}/experiments/#/experiment/{experiment_name}/{run_id}"
+                                    st.success(f"Dự đoán đã được log thành công vào DagsHub!\n- Experiment: '{experiment_name}'\n- Tên Run: '{run_name}'\n- ID Run: {run_id}\n- Link: [Xem trong DagsHub UI]({dagshub_link})")
 
                                     # Liên kết tới các tab khác
                                     st.write("Bạn muốn làm gì tiếp theo?")
@@ -223,8 +238,8 @@ def show_demo():
                 params = mlflow.get_run(selected_run_id).data.params
                 st.write(params)
 
-                mlflow_ui_link = f"http://127.0.0.1:5000/#/experiments/{run_details['experiment_id']}/runs/{selected_run_id}"
-                st.write(f"Xem run này trong MLflow UI: [Nhấn vào đây]({mlflow_ui_link})")
+                dagshub_link = f"https://dagshub.com/{DAGSHUB_USERNAME}/{DAGSHUB_REPO}/experiments/#/experiment/{experiment_name}/{selected_run_id}"
+                st.write(f"Xem run này trong DagsHub UI: [Nhấn vào đây]({dagshub_link})")
 
     # Tab 3: Xóa log
     with tab3:
