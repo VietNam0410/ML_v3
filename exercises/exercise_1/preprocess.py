@@ -10,26 +10,9 @@ import string
 import dagshub
 import datetime
 
-# Thiết lập thông tin DagsHub
-DAGSHUB_USERNAME = "VietNam0410"
-DAGSHUB_REPO = "vn0410"  # Thay bằng repo thực tế nếu khác
-
-# Khởi tạo kết nối với DagsHub với xử lý lỗi
-try:
-    dagshub.init(repo_owner=DAGSHUB_USERNAME, repo_name=DAGSHUB_REPO, mlflow=True)
-    mlflow.set_tracking_uri(f"https://dagshub.com/{DAGSHUB_USERNAME}/{DAGSHUB_REPO}.mlflow")
-    os.environ["MLFLOW_TRACKING_USERNAME"] = DAGSHUB_USERNAME
-    os.environ["MLFLOW_TRACKING_PASSWORD"] = os.getenv("MLFLOW_TRACKING_PASSWORD", "")
-    st.success("Đã kết nối với DagsHub thành công!")
-except Exception as e:
-    st.error(f"Không thể kết nối với DagsHub: {str(e)}. Sử dụng MLflow cục bộ.")
-    mlflow.set_tracking_uri(f"file://{os.path.abspath('mlruns')}")
-
-# Hàm tải dữ liệu với cache
-@st.cache_data
-def load_cached_data(file_buffer):
-    """Tải dữ liệu từ file CSV và lưu vào bộ nhớ đệm."""
-    return pd.read_csv(file_buffer)
+# Khởi tạo kết nối với DagsHub bằng DagsHub client
+dagshub.init(repo_owner='VietNam0410', repo_name='my-first-repo', mlflow=True)
+# Lưu ý: Đảm bảo bạn đã chạy `dagshub login` trong terminal trước để xác thực.
 
 def preprocess_data():
     st.header("Tiền xử lý dữ liệu Titanic 🛳️")
@@ -53,7 +36,7 @@ def preprocess_data():
     # Upload file CSV
     uploaded_file = st.file_uploader("Tải lên file CSV Titanic 📂", type=["csv"])
     if uploaded_file and st.session_state['data'] is None:
-        st.session_state['data'] = load_cached_data(uploaded_file)  # Sử dụng hàm có cache
+        st.session_state['data'] = pd.read_csv(uploaded_file)
         st.session_state['preprocessing_steps'] = {}
         st.success("File đã được tải lên thành công! ✅")
 
@@ -142,7 +125,7 @@ def preprocess_data():
                     
                     if st.button(f"Điền giá trị cho '{col}' ✏️", key=f"fill_{col}"):
                         st.session_state['data'][col] = st.session_state['data'].apply(
-                            lambda row: row[col] if pd.notnull(row[col]) else generate_cabin(), axis=1
+                            lambda x: x if pd.notnull(x) else generate_cabin()
                         )
                         st.session_state['preprocessing_steps'][f"{col}_filled"] = "random_cabin_format"
                         st.success(f"Đã điền dữ liệu thiếu ở '{col}' bằng giá trị ngẫu nhiên.")
@@ -291,10 +274,12 @@ def preprocess_data():
     else:
         st.success("Không có cột số nào (ngoại trừ 'Name' và 'PassengerId') để chuẩn hóa.")
 
-    # 5. Lưu và log dữ liệu với MLflow
-    st.write("### Bước 5: Lưu dữ liệu và log 💾")
+    # 5. Lưu và log dữ liệu với DagsHub
+    st.write("### Bước 5: Lưu dữ liệu và log vào DagsHub 💾")
+    # Cho người dùng đặt tên run ID ngắn gọn hoặc tự động tạo
     run_id_input = st.text_input("Nhập tên Run ID (để trống để tự động tạo)", value="", max_chars=10, help="Tên ngắn gọn, ví dụ: 'Run1'")
-    if st.button("Lưu dữ liệu đã xử lý và log 📋"):
+    if st.button("Lưu dữ liệu đã xử lý và log vào DagsHub 📋"):
+        # Đảm bảo không có run nào đang hoạt động trước khi bắt đầu
         if mlflow.active_run():
             mlflow.end_run()
             st.info("Đã đóng run MLflow đang hoạt động trước khi bắt đầu log mới.")
@@ -307,27 +292,41 @@ def preprocess_data():
         st.subheader("Xem trước dữ liệu đã xử lý cuối cùng 🔚")
         st.write(st.session_state['data'])
 
+        # Tạo run ID tự động nếu người dùng không nhập
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         run_name = run_id_input if run_id_input else f"Run_{timestamp[-6:]}"
 
+        # Bắt đầu một run mới và log params, metrics, artifacts
         try:
             with mlflow.start_run(run_name=run_name) as run:
+                # Lấy thời gian bắt đầu log
                 log_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+                # Log các tham số tiền xử lý
                 log_preprocessing_params(st.session_state['preprocessing_steps'])
+
+                # Log artifact
                 mlflow.log_artifact(processed_file, artifact_path="processed_data")
+
+                # Log thêm các tham số
                 mlflow.log_param("num_rows", len(st.session_state['data']))
                 mlflow.log_param("num_columns", len(st.session_state['data'].columns))
+
+                # Log metrics
                 mlflow.log_metric("missing_values_before", missing_info.sum())
                 mlflow.log_metric("missing_values_after", st.session_state['data'].isnull().sum().sum())
                 mlflow.log_metric("missing_values_handled", missing_info.sum() - st.session_state['data'].isnull().sum().sum())
 
+                # Lấy run ID để tạo link
                 run_id = run.info.run_id
-                dagshub_link = f"https://dagshub.com/{DAGSHUB_USERNAME}/{DAGSHUB_REPO}/experiments/#/experiment/{experiment_name}/{run_id}"
-                st.success(f"Đã log dữ liệu thành công lúc {log_time}! 📊")
-                st.markdown(f"Xem chi tiết tại: [DagsHub Experiment]({dagshub_link})")
+
+            # Tạo đường link đến DagsHub experiment
+            dagshub_link = f"https://dagshub.com/VietNam0410/my-first-repo/experiments/#/experiment/{experiment_name}/{run_id}"
+            st.success(f"Đã log dữ liệu vào DagsHub thành công lúc {log_time}! 📊")
+            st.markdown(f"Xem chi tiết tại: [DagsHub Experiment]({dagshub_link})")
 
         except Exception as e:
-            st.error(f"Lỗi khi log: {str(e)}")
+            st.error(f"Lỗi khi log vào DagsHub: {str(e)}")
 
         saved_data = load_data(processed_file)
         st.write("Xác nhận: Dữ liệu tải lại từ file đã lưu:", saved_data)
