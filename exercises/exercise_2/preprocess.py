@@ -6,12 +6,17 @@ from tensorflow.keras.datasets import mnist
 import mlflow
 import os
 import dagshub
+import datetime
 
-# Phần khởi tạo kết nối với DagsHub được comment để không truy cập ngay lập tức
-# with st.spinner("Đang kết nối với DagsHub..."):
-#     dagshub.init(repo_owner='VietNam0410', repo_name='vn0410', mlflow=True)
-#     mlflow.set_tracking_uri(f"https://dagshub.com/VietNam0410/vn0410.mlflow")
-# st.success("Đã kết nối với DagsHub thành công!")
+# Hàm khởi tạo MLflow
+def mlflow_input():
+    DAGSHUB_MLFLOW_URI = "https://dagshub.com/VietNam0410/vn0410.mlflow"
+    mlflow.set_tracking_uri(DAGSHUB_MLFLOW_URI)
+    st.session_state['mlflow_url'] = DAGSHUB_MLFLOW_URI
+    os.environ["MLFLOW_TRACKING_USERNAME"] = "VietNam0410"
+    os.environ["MLFLOW_TRACKING_PASSWORD"] = "22fd02345f8ff45482a20960058627630acaf190"  # Thay bằng token cá nhân của bạn
+    DAGSHUB_REPO = "vn0410"
+    return DAGSHUB_REPO
 
 # Hàm tải dữ liệu MNIST với cache
 @st.cache_data
@@ -39,11 +44,29 @@ def preprocess_mnist():
         mlflow.end_run()
         st.info("Đã đóng run MLflow đang hoạt động trước đó.")
 
-    # Cho người dùng đặt tên Experiment (vẫn giữ để tương thích với MLflow nếu cần sau này)
+    # Gọi hàm mlflow_input để thiết lập MLflow
+    DAGSHUB_REPO = mlflow_input()
+
+    # Cho người dùng đặt tên Experiment
     experiment_name = st.text_input("Nhập tên Experiment cho tiền xử lý", value="MNIST_Preprocessing")
-    # if experiment_name:
-    #     with st.spinner("Đang thiết lập Experiment trên DagsHub..."):
-    #         mlflow.set_experiment(experiment_name)
+    with st.spinner("Đang thiết lập Experiment trên DagsHub..."):
+        try:
+            client = mlflow.tracking.MlflowClient()
+            experiment = client.get_experiment_by_name(experiment_name)
+            if experiment and experiment.lifecycle_stage == "deleted":
+                st.warning(f"Experiment '{experiment_name}' đã bị xóa trước đó. Vui lòng chọn tên khác hoặc khôi phục experiment qua DagsHub UI.")
+                new_experiment_name = st.text_input("Nhập tên Experiment mới", value=f"{experiment_name}_Restored_{datetime.datetime.now().strftime('%Y%m%d')}")
+                if new_experiment_name:
+                    mlflow.set_experiment(new_experiment_name)
+                    experiment_name = new_experiment_name
+                else:
+                    st.error("Vui lòng nhập tên experiment mới để tiếp tục.")
+                    return
+            else:
+                mlflow.set_experiment(experiment_name)
+        except Exception as e:
+            st.error(f"Lỗi khi thiết lập experiment: {str(e)}")
+            return
 
     # Tải dữ liệu từ bộ nhớ đệm nếu chưa có trong session_state
     if 'X_full' not in st.session_state or 'y_full' not in st.session_state:
@@ -110,35 +133,32 @@ def preprocess_mnist():
             os.makedirs(processed_dir, exist_ok=True)
             processed_file = os.path.join(processed_dir, "mnist_processed.npz")
 
-            # Lưu dữ liệu cục bộ mà không log vào DagsHub
-            with st.spinner("Đang lưu dữ liệu đã chia..."):
+            # Lưu dữ liệu cục bộ và log vào MLflow
+            with st.spinner("Đang lưu và log dữ liệu đã chia..."):
                 np.savez(processed_file, 
                          X_train=X_train, y_train=y_train,
                          X_valid=X_valid, y_valid=y_valid,
                          X_test=X_test, y_test=y_test)
                 st.success(f"Dữ liệu đã được lưu vào {processed_file} 💾")
 
-            # Comment phần logging vào MLflow/DagsHub
-            # with mlflow.start_run(run_name=f"MNIST_Data_Split_{max_samples}_Samples") as run:
-            #     mlflow.log_param("max_samples", max_samples)
-            #     mlflow.log_param("train_size", train_size)
-            #     mlflow.log_param("val_size", val_size)
-            #     mlflow.log_param("test_size", test_size)
-            #     mlflow.log_metric("train_samples", len(X_train))
-            #     mlflow.log_metric("valid_samples", len(X_valid))
-            #     mlflow.log_metric("test_samples", len(X_test))
+            # Logging vào MLflow/DagsHub
+            with mlflow.start_run(run_name=f"MNIST_Data_Split_{max_samples}_Samples") as run:
+                mlflow.log_param("max_samples", max_samples)
+                mlflow.log_param("train_size", train_size)
+                mlflow.log_param("val_size", val_size)
+                mlflow.log_param("test_size", test_size)
+                mlflow.log_metric("train_samples", len(X_train))
+                mlflow.log_metric("valid_samples", len(X_valid))
+                mlflow.log_metric("test_samples", len(X_test))
 
-            #     np.savez(processed_file, 
-            #              X_train=X_train, y_train=y_train,
-            #              X_valid=X_valid, y_valid=y_valid,
-            #              X_test=X_test, y_test=y_test)
-            #     mlflow.log_artifact(processed_file, artifact_path="processed_data")
-            #     os.remove(processed_file)  # Xóa file tạm sau khi log
+                mlflow.log_artifact(processed_file, artifact_path="processed_data")
+                # Xóa file tạm sau khi log (tuỳ chọn)
+                os.remove(processed_file)
 
-            #     run_id = run.info.run_id
-            #     dagshub_link = f"https://dagshub.com/VietNam0410/vn0410/experiments/#/experiment/{experiment_name}/{run_id}"
-            #     st.success("Dữ liệu đã được chia và log vào MLflow ✅.")
-            #     st.markdown(f"Xem chi tiết tại: [DagsHub Experiment]({dagshub_link})")
+                run_id = run.info.run_id
+                mlflow_uri = st.session_state['mlflow_url']
+                st.success("Dữ liệu đã được chia và log vào MLflow ✅.")
+                st.markdown(f"Xem chi tiết tại: [DagsHub MLflow Tracking]({mlflow_uri})")
 
             st.session_state['mnist_data'] = {
                 'X_train': X_train,

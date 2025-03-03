@@ -6,13 +6,19 @@ from tensorflow.keras.datasets import mnist
 import mlflow
 import os
 import dagshub
+import datetime
 
-# Phần khởi tạo kết nối với DagsHub được comment để không truy cập ngay lập tức
-# with st.spinner("Đang kết nối với DagsHub..."):
-#     dagshub.init(repo_owner='VietNam0410', repo_name='vn0410', mlflow=True)
-#     mlflow.set_tracking_uri(f"https://dagshub.com/VietNam0410/vn0410.mlflow")
-# st.success("Đã kết nối với DagsHub thành công!")
+# Hàm khởi tạo MLflow
+def mlflow_input():
+    DAGSHUB_MLFLOW_URI = "https://dagshub.com/VietNam0410/vn0410.mlflow"
+    mlflow.set_tracking_uri(DAGSHUB_MLFLOW_URI)
+    st.session_state['mlflow_url'] = DAGSHUB_MLFLOW_URI
+    os.environ["MLFLOW_TRACKING_USERNAME"] = "VietNam0410"
+    os.environ["MLFLOW_TRACKING_PASSWORD"] = "22fd02345f8ff45482a20960058627630acaf190"  # Thay bằng token cá nhân của bạn
+    DAGSHUB_REPO = "vn0410"
+    return DAGSHUB_REPO
 
+# Cache dữ liệu MNIST
 def load_mnist_from_openml():
     with st.spinner("Đang tải dữ liệu MNIST..."):
         try:
@@ -36,12 +42,31 @@ def preprocess_mnist_clustering():
         mlflow.end_run()
         st.info("Đã đóng run MLflow đang hoạt động trước đó.")
 
-    # Cho người dùng đặt tên Experiment (vẫn giữ để tương thích với MLflow nếu cần sau này)
-    experiment_name = st.text_input("Nhập tên Experiment cho tiền xử lý", value="MNIST_Clustering_Preprocessing")
-    # if experiment_name:
-    #     with st.spinner("Đang thiết lập Experiment trên DagsHub..."):
-    #         mlflow.set_experiment(experiment_name)
+    # Gọi hàm mlflow_input để thiết lập MLflow tại DAGSHUB_MLFLOW_URI
+    DAGSHUB_REPO = mlflow_input()
 
+    # Cho người dùng đặt tên Experiment
+    experiment_name = st.text_input("Nhập tên Experiment cho tiền xử lý", value="MNIST_Clustering_Preprocessing")
+    with st.spinner("Đang thiết lập Experiment trên DagsHub MLflow..."):
+        try:
+            client = mlflow.tracking.MlflowClient()
+            experiment = client.get_experiment_by_name(experiment_name)
+            if experiment and experiment.lifecycle_stage == "deleted":
+                st.warning(f"Experiment '{experiment_name}' đã bị xóa trước đó. Vui lòng chọn tên khác hoặc khôi phục experiment qua DagsHub UI.")
+                new_experiment_name = st.text_input("Nhập tên Experiment mới", value=f"{experiment_name}_Restored_{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                if new_experiment_name:
+                    mlflow.set_experiment(new_experiment_name)
+                    experiment_name = new_experiment_name
+                else:
+                    st.error("Vui lòng nhập tên experiment mới để tiếp tục.")
+                    return
+            else:
+                mlflow.set_experiment(experiment_name)
+        except Exception as e:
+            st.error(f"Lỗi khi thiết lập experiment: {str(e)}")
+            return
+
+    # Tải dữ liệu MNIST
     if 'X_full_clustering' not in st.session_state or 'y_full_clustering' not in st.session_state:
         st.session_state['X_full_clustering'], st.session_state['y_full_clustering'] = load_mnist_from_openml()
         st.success("Dữ liệu MNIST đã được tải và chuẩn hóa thành công! ✅")
@@ -77,6 +102,12 @@ def preprocess_mnist_clustering():
     st.write(f"Tỷ lệ thực tế: Huấn luyện {train_size*100:.1f}%, Validation {val_size*100:.1f}%, Kiểm tra {test_size*100:.1f}%")
     st.write(f"Kiểm tra tổng tỷ lệ: {train_size*100 + val_size*100 + test_size*100:.1f}% (phải luôn bằng 100%)")
 
+    # Cho phép người dùng đặt tên run ID cho việc chia dữ liệu
+    run_name = st.text_input("Nhập tên Run ID cho việc chia dữ liệu (để trống để tự động tạo)", value="", max_chars=20, key="data_split_run_name_input")
+    if run_name.strip() == "":
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        run_name = f"MNIST_Clustering_DataSplit_{timestamp.replace(' ', '_').replace(':', '-')}"  # Định dạng tên run hợp lệ cho MLflow
+
     if st.button("Chia dữ liệu"):
         with st.spinner("Đang chia dữ liệu..."):
             if max_samples < total_samples:
@@ -106,7 +137,7 @@ def preprocess_mnist_clustering():
             os.makedirs(processed_dir, exist_ok=True)
             processed_file = os.path.join(processed_dir, "mnist_clustering_processed.npz")
 
-            # Lưu dữ liệu cục bộ mà không log vào DagsHub
+            # Lưu dữ liệu cục bộ
             with st.spinner("Đang lưu dữ liệu đã chia..."):
                 np.savez(processed_file, 
                          X_train=X_train, y_train=y_train,
@@ -114,28 +145,29 @@ def preprocess_mnist_clustering():
                          X_test=X_test, y_test=y_test)
                 st.success(f"Dữ liệu đã được lưu vào {processed_file} 💾")
 
-            # Comment phần logging vào MLflow/DagsHub
-            # with mlflow.start_run(run_name=f"MNIST_Clustering_Data_Split_{max_samples}_Samples") as run:
-            #     mlflow.log_param("max_samples", max_samples)
-            #     mlflow.log_param("train_size", train_size)
-            #     mlflow.log_param("val_size", val_size)
-            #     mlflow.log_param("test_size", test_size)
-            #     mlflow.log_metric("train_samples", len(X_train))
-            #     mlflow.log_metric("valid_samples", len(X_valid))
-            #     mlflow.log_metric("test_samples", len(X_test))
+            # Logging vào MLflow tại DAGSHUB_MLFLOW_URI
+            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            with mlflow.start_run(run_name=run_name) as run:
+                mlflow.log_param("timestamp", timestamp)
+                mlflow.log_param("run_id", run.info.run_id)
+                mlflow.log_param("max_samples", max_samples)
+                mlflow.log_param("train_size", train_size)
+                mlflow.log_param("val_size", val_size)
+                mlflow.log_param("test_size", test_size)
+                mlflow.log_metric("train_samples", len(X_train))
+                mlflow.log_metric("valid_samples", len(X_valid))
+                mlflow.log_metric("test_samples", len(X_test))
 
-            #     np.savez(processed_file, 
-            #              X_train=X_train, y_train=y_train,
-            #              X_valid=X_valid, y_valid=y_valid,
-            #              X_test=X_test, y_test=y_test)
-            #     mlflow.log_artifact(processed_file, artifact_path="processed_data")
-            #     os.remove(processed_file)
+                # Log file dữ liệu đã chia làm artifact
+                mlflow.log_artifact(processed_file, artifact_path="processed_data")
+                os.remove(processed_file)  # Xóa file cục bộ sau khi log
 
-            #     run_id = run.info.run_id
-            #     dagshub_link = f"https://dagshub.com/VietNam0410/vn0410/experiments/#/experiment/{experiment_name}/{run_id}"
-            #     st.success("Dữ liệu đã được chia và log vào MLflow ✅.")
-            #     st.markdown(f"Xem chi tiết tại: [DagsHub Experiment]({dagshub_link})")
+                run_id = run.info.run_id
+                mlflow_uri = st.session_state['mlflow_url']
+                st.success(f"Dữ liệu đã được chia, lưu cục bộ, và log vào DagsHub MLflow thành công! ✅ (Tên Run: {run_name}, Run ID: {run_id}, Thời gian: {timestamp})")
+                st.markdown(f"Xem chi tiết tại: [DagsHub MLflow Tracking]({mlflow_uri})")
 
+            # Lưu dữ liệu vào session_state để sử dụng sau
             st.session_state['mnist_clustering_data'] = {
                 'X_train': X_train,
                 'y_train': y_train,
