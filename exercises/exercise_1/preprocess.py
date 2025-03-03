@@ -10,12 +10,15 @@ import string
 import dagshub
 import datetime
 
-# Phần khởi tạo kết nối với DagsHub được comment để không truy cập ngay lập tức
-# with st.spinner("Đang kết nối với DagsHub..."):
-#     dagshub.init(repo_owner='VietNam0410', repo_name='vn0410', mlflow=True)
-#     # Cấu hình MLflow tracking URI
-#     mlflow.set_tracking_uri(f"https://dagshub.com/VietNam0410/vn0410.mlflow")
-# st.success("Đã kết nối với DagsHub thành công!")
+# Hàm khởi tạo MLflow
+def mlflow_input():
+    DAGSHUB_MLFLOW_URI = "https://dagshub.com/VietNam0410/vn0410.mlflow"
+    mlflow.set_tracking_uri(DAGSHUB_MLFLOW_URI)
+    st.session_state['mlflow_url'] = DAGSHUB_MLFLOW_URI
+    os.environ["MLFLOW_TRACKING_USERNAME"] = "VietNam0410"
+    os.environ["MLFLOW_TRACKING_PASSWORD"] = "22fd02345f8ff45482a20960058627630acaf190"  # Thay bằng token cá nhân của bạn
+    DAGSHUB_REPO = "vn0410"
+    return DAGSHUB_REPO
 
 def preprocess_data():
     st.header("Tiền xử lý dữ liệu Titanic 🛳️")
@@ -25,11 +28,30 @@ def preprocess_data():
         mlflow.end_run()
         st.info("Đã đóng run MLflow đang hoạt động trước đó.")
 
-    # Cho người dùng đặt tên Experiment (vẫn giữ để tương thích với MLflow nếu cần sau này)
+    # Gọi hàm mlflow_input để thiết lập MLflow
+    DAGSHUB_REPO = mlflow_input()
+
+    # Cho người dùng đặt tên Experiment
     experiment_name = st.text_input("Nhập tên Experiment cho tiền xử lý", value="Titanic_Preprocessing")
-    # if experiment_name:
-    #     with st.spinner("Đang thiết lập Experiment trên DagsHub..."):
-    #         mlflow.set_experiment(experiment_name)
+    with st.spinner("Đang thiết lập Experiment trên DagsHub..."):
+        client = mlflow.tracking.MlflowClient()
+        try:
+            # Kiểm tra xem experiment đã tồn tại và bị xóa chưa
+            experiment = client.get_experiment_by_name(experiment_name)
+            if experiment and experiment.lifecycle_stage == "deleted":
+                st.warning(f"Experiment '{experiment_name}' đã bị xóa trước đó. Vui lòng chọn tên khác hoặc khôi phục experiment qua DagsHub UI.")
+                new_experiment_name = st.text_input("Nhập tên Experiment mới", value=f"{experiment_name}_Restored_{datetime.datetime.now().strftime('%Y%m%d')}")
+                if new_experiment_name:
+                    mlflow.set_experiment(new_experiment_name)
+                    experiment_name = new_experiment_name
+                else:
+                    st.error("Vui lòng nhập tên experiment mới để tiếp tục.")
+                    return
+            else:
+                mlflow.set_experiment(experiment_name)
+        except Exception as e:
+            st.error(f"Lỗi khi thiết lập experiment: {str(e)}")
+            return
 
     # Khởi tạo session_state để lưu dữ liệu
     if 'data' not in st.session_state:
@@ -71,7 +93,7 @@ def preprocess_data():
     columns_to_drop = st.multiselect(
         "Chọn cột cần loại bỏ",
         options=st.session_state['data'].columns.tolist(),
-        help="Gợi ý: Loại bỏ 'Ticket', 'Cabin', 'Name', 'PassengerId' nếu không cần thiết."
+        help="Gợi ý: Loại bỏ 'Ticket', 'Cabin' nếu không cần thiết."
     )
     if st.button("Loại bỏ các cột đã chọn 🗑️"):
         if columns_to_drop:
@@ -249,7 +271,7 @@ def preprocess_data():
 
     # 4. Chuẩn hóa dữ liệu
     st.write("### Bước 4: Chuẩn hóa/Dữ liệu quy mô 🔢")
-    numerical_cols = [col for col in st.session_state['data'].columns if col not in ['Name', 'PassengerId'] and st.session_state['data'][col].dtype in ['int64', 'float64']]
+    numerical_cols = [col for col in st.session_state['data'].columns if col not in ['Name', 'PassengerId', 'Survived'] and st.session_state['data'][col].dtype in ['int64', 'float64']]
     if numerical_cols:
         st.info("Gợi ý: 'Min-Max Scaling' (0-1) cho phạm vi giới hạn; 'Standard Scaling' (mean=0, std=1) cho dữ liệu chuẩn.")
         scaling_method = st.selectbox(
@@ -277,9 +299,9 @@ def preprocess_data():
             else:
                 st.warning("Không có cột nào được chọn để chuẩn hóa.")
     else:
-        st.success("Không có cột số nào (ngoại trừ 'Name' và 'PassengerId') để chuẩn hóa.")
+        st.success("Không có cột số nào (ngoại trừ 'Name', 'PassengerId', 'Survived') để chuẩn hóa.")
 
-    # 5. Lưu dữ liệu (không log vào DagsHub ngay lập tức)
+    # 5. Lưu dữ liệu
     st.write("### Bước 5: Lưu dữ liệu 💾")
     if st.button("Lưu dữ liệu đã xử lý 💾"):
         processed_file = "exercises/exercise_1/data/processed/titanic_processed.csv"
@@ -294,46 +316,46 @@ def preprocess_data():
             saved_data = load_data(processed_file)
             st.write("Xác nhận: Dữ liệu tải lại từ file đã lưu:", saved_data)
 
-    # Comment phần logging vào DagsHub để chạy cục bộ trước
-    # run_id_input = st.text_input("Nhập tên Run ID (để trống để tự động tạo)", value="", max_chars=10, help="Tên ngắn gọn, ví dụ: 'Run1'")
-    # if st.button("Lưu dữ liệu đã xử lý và log 📋"):
-    #     if mlflow.active_run():
-    #         mlflow.end_run()
-    #         st.info("Đã đóng run MLflow đang hoạt động trước khi bắt đầu log mới.")
+    # Logging và tracking vào MLflow trên DagsHub
+    run_id_input = st.text_input("Nhập tên Run ID (để trống để tự động tạo)", value="", max_chars=10, help="Tên ngắn gọn, ví dụ: 'Run1'")
+    if st.button("Lưu dữ liệu đã xử lý và log 📋"):
+        if mlflow.active_run():
+            mlflow.end_run()
+            st.info("Đã đóng run MLflow đang hoạt động trước khi bắt đầu log mới.")
 
-    #     processed_file = "exercises/exercise_1/data/processed/titanic_processed.csv"
-    #     os.makedirs(os.path.dirname(processed_file), exist_ok=True)
-    #     with st.spinner("Đang lưu và log dữ liệu..."):
-    #         save_data(st.session_state['data'], processed_file)
-    #         st.success(f"Dữ liệu đã được lưu vào {processed_file} 💾")
+        processed_file = "exercises/exercise_1/data/processed/titanic_processed.csv"
+        os.makedirs(os.path.dirname(processed_file), exist_ok=True)
+        with st.spinner("Đang lưu và log dữ liệu lên DagsHub..."):
+            save_data(st.session_state['data'], processed_file)
+            st.success(f"Dữ liệu đã được lưu vào {processed_file} 💾")
 
-    #         st.subheader("Xem trước dữ liệu đã xử lý cuối cùng 🔚")
-    #         st.write(st.session_state['data'])
+            st.subheader("Xem trước dữ liệu đã xử lý cuối cùng 🔚")
+            st.write(st.session_state['data'])
 
-    #         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    #         run_name = run_id_input if run_id_input else f"Run_{timestamp[-6:]}"
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            run_name = run_id_input if run_id_input else f"Run_{timestamp[-6:]}"
 
-    #         try:
-    #             with mlflow.start_run(run_name=run_name) as run:
-    #                 log_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    #                 log_preprocessing_params(st.session_state['preprocessing_steps'])
-    #                 mlflow.log_artifact(processed_file, artifact_path="processed_data")
-    #                 mlflow.log_param("num_rows", len(st.session_state['data']))
-    #                 mlflow.log_param("num_columns", len(st.session_state['data'].columns))
-    #                 mlflow.log_metric("missing_values_before", missing_info.sum())
-    #                 mlflow.log_metric("missing_values_after", st.session_state['data'].isnull().sum().sum())
-    #                 mlflow.log_metric("missing_values_handled", missing_info.sum() - st.session_state['data'].isnull().sum().sum())
+            try:
+                with mlflow.start_run(run_name=run_name) as run:
+                    log_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    log_preprocessing_params(st.session_state['preprocessing_steps'])
+                    mlflow.log_artifact(processed_file, artifact_path="processed_data")
+                    mlflow.log_param("num_rows", len(st.session_state['data']))
+                    mlflow.log_param("num_columns", len(st.session_state['data'].columns))
+                    mlflow.log_metric("missing_values_before", missing_info.sum())
+                    mlflow.log_metric("missing_values_after", st.session_state['data'].isnull().sum().sum())
+                    mlflow.log_metric("missing_values_handled", missing_info.sum() - st.session_state['data'].isnull().sum().sum())
 
-    #                 run_id = run.info.run_id
-    #                 dagshub_link = f"https://dagshub.com/VietNam0410/vn0410/experiments/#/experiment/{experiment_name}/{run_id}"
-    #                 st.success(f"Đã log dữ liệu thành công lúc {log_time}! 📊")
-    #                 st.markdown(f"Xem chi tiết tại: [DagsHub Experiment]({dagshub_link})")
+                    run_id = run.info.run_id
+                    mlflow_uri = st.session_state['mlflow_url']
+                    st.success(f"Đã log dữ liệu thành công lúc {log_time}! 📊")
+                    st.markdown(f"Xem chi tiết tại: [DagsHub MLflow Tracking]({mlflow_uri})")
 
-    #         except Exception as e:
-    #             st.error(f"Lỗi khi log: {str(e)}")
+            except Exception as e:
+                st.error(f"Lỗi khi log: {str(e)}")
 
-    #         saved_data = load_data(processed_file)
-    #         st.write("Xác nhận: Dữ liệu tải lại từ file đã lưu:", saved_data)
+            saved_data = load_data(processed_file)
+            st.write("Xác nhận: Dữ liệu tải lại từ file đã lưu:", saved_data)
 
 if __name__ == "__main__":
     preprocess_data()
