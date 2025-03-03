@@ -3,59 +3,72 @@ import numpy as np
 from PIL import Image
 import mlflow
 import os
-from sklearn.cluster import KMeans, DBSCAN
+from sklearn.svm import SVC
+from sklearn.tree import DecisionTreeClassifier
 from streamlit_drawable_canvas import st_canvas
 import dagshub
 
-# Thiết lập thông tin DagsHub
-DAGSHUB_USERNAME = "VietNam0410"
-DAGSHUB_REPO = "vn0410"
+# Phần khởi tạo kết nối với DagsHub được comment để không truy cập ngay lập tức
+# with st.spinner("Đang kết nối với DagsHub..."):
+#     dagshub.init(repo_owner='VietNam0410', repo_name='vn0410', mlflow=True)
+#     mlflow.set_tracking_uri(f"https://dagshub.com/VietNam0410/vn0410.mlflow")
+# st.success("Đã kết nối với DagsHub thành công!")
 
-try:
-    dagshub.init(repo_owner=DAGSHUB_USERNAME, repo_name=DAGSHUB_REPO, mlflow=True)
-    mlflow.set_tracking_uri(f"https://dagshub.com/{DAGSHUB_USERNAME}/{DAGSHUB_REPO}.mlflow")
-    os.environ["MLFLOW_TRACKING_USERNAME"] = DAGSHUB_USERNAME
-    os.environ["MLFLOW_TRACKING_PASSWORD"] = os.getenv("MLFLOW_TRACKING_PASSWORD", "")
-    st.success("Đã kết nối với DagsHub thành công!")
-except Exception as e:
-    st.error(f"Không thể kết nối với DagsHub: {str(e)}. Sử dụng MLflow cục bộ.")
-    mlflow.set_tracking_uri(f"file://{os.path.abspath('mlruns')}")
+def show_mnist_demo():
+    st.header("Demo Nhận diện Chữ số MNIST 🖌️")
+    experiment_name = "MNIST_Training"  # Đổi sang experiment của phân loại số
 
-def show_clustering_demo():
-    st.header("Demo Clustering trên MNIST 🖌️")
-    experiment_name = "MNIST_Clustering"
-
+    # Đóng bất kỳ run nào đang hoạt động để tránh xung đột khi bắt đầu
     if mlflow.active_run():
         mlflow.end_run()
         st.info("Đã đóng run MLflow đang hoạt động trước đó.")
 
-    if 'clustering_model' not in st.session_state or st.session_state['clustering_model'] is None:
-        runs = mlflow.search_runs(experiment_names=[experiment_name])
-        if runs.empty:
-            st.error("Không tìm thấy mô hình clustering trong MLflow. Vui lòng chạy 'Clustering Train' trước.")
+    # Kiểm tra mô hình phân loại trong session hoặc yêu cầu đường dẫn cục bộ
+    if 'mnist_model' not in st.session_state or st.session_state['mnist_model'] is None:
+        # Comment phần tải mô hình từ MLflow
+        # runs = mlflow.search_runs(experiment_names=[experiment_name])
+        # if runs.empty:
+        #     st.error("Không tìm thấy mô hình trong MLflow. Vui lòng chạy 'Train MNIST' trước.")
+        #     return
+
+        # run_options = {f"{run['tags.mlflow.runName']} (ID: {run['run_id'][:8]})": run['run_id'] for _, run in runs.iterrows()}
+        # selected_run_name = st.selectbox("Chọn mô hình từ MLflow", list(run_options.keys()))
+        # selected_run_id = run_options[selected_run_name]
+
+        # try:
+        #     model = mlflow.sklearn.load_model(f"runs:/{selected_run_id}/model")
+        #     scaler = mlflow.sklearn.load_model(f"runs:/{selected_run_id}/scaler")
+        #     model_type = runs[runs['run_id'] == selected_run_id]['params.model_type'].iloc[0]
+        #     st.write(f"Mô hình được chọn: {model_type}")
+        # except Exception as e:
+        #     st.error(f"Không thể tải mô hình/scaler từ MLflow: {str(e)}. Run ID: {selected_run_id}")
+        #     return
+
+        # Thay bằng yêu cầu đường dẫn mô hình cục bộ
+        st.info("Vì logging vào DagsHub đã bị tắt, hãy cung cấp đường dẫn đến mô hình phân loại và scaler cục bộ.")
+        model_path = st.text_input("Nhập đường dẫn đến file mô hình cục bộ (ví dụ: 'model.pkl')", value="")
+        scaler_path = st.text_input("Nhập đường dẫn đến file scaler cục bộ (ví dụ: 'scaler.pkl')", value="")
+        if not model_path or not scaler_path:
+            st.warning("Vui lòng cung cấp cả đường dẫn mô hình và scaler để tiếp tục.")
             return
-
-        run_options = {f"{run['tags.mlflow.runName']} (ID: {run['run_id'][:8]})": run['run_id'] for _, run in runs.iterrows()}
-        selected_run_name = st.selectbox("Chọn mô hình từ MLflow", list(run_options.keys()))
-        selected_run_id = run_options[selected_run_name]
-
         try:
-            model = mlflow.sklearn.load_model(f"runs:/{selected_run_id}/model")
-            scaler = mlflow.sklearn.load_model(f"runs:/{selected_run_id}/scaler")
-            pca = mlflow.sklearn.load_model(f"runs:/{selected_run_id}/pca")
-            model_type = runs[runs['run_id'] == selected_run_id]['params.model_type'].iloc[0]
-            st.write(f"Mô hình được chọn: {model_type}")
+            with open(model_path, "rb") as f:
+                import pickle
+                model = pickle.load(f)
+            with open(scaler_path, "rb") as f:
+                scaler = pickle.load(f)
+            model_type = "SVM (Support Vector Machine)" if isinstance(model, SVC) else "Decision Tree"
+            st.write(f"Mô hình được chọn: {model_type} (từ file cục bộ)")
         except Exception as e:
-            st.error(f"Không thể tải mô hình/scaler/pca từ MLflow: {str(e)}. Run ID: {selected_run_id}")
+            st.error(f"Không thể tải mô hình/scaler từ đường dẫn cục bộ: {str(e)}")
             return
     else:
-        model = st.session_state['clustering_model']
-        scaler = st.session_state['clustering_scaler']
-        pca = st.session_state['clustering_pca']
-        model_type = "K-means" if isinstance(model, KMeans) else "DBSCAN"
+        model = st.session_state['mnist_model']
+        scaler = st.session_state['mnist_scaler']
+        model_type = "SVM (Support Vector Machine)" if isinstance(model, SVC) else "Decision Tree"
         st.write(f"Mô hình được chọn: {model_type} (từ session)")
 
-    st.subheader("Vẽ hoặc Tải ảnh để phân cụm 🖋️")
+    st.subheader("Vẽ hoặc Tải ảnh để nhận diện số 🖋️")
     input_type = st.radio("Chọn phương thức nhập:", ["Vẽ chữ số", "Tải ảnh"])
 
     if input_type == "Vẽ chữ số":
@@ -77,30 +90,33 @@ def show_clustering_demo():
             image_array = np.array(image) / 255.0
             st.image(image_array, caption="Hình ảnh đã vẽ", width=100)
 
-            run_name = st.text_input("Nhập tên cho lần thử nghiệm này", value=f"Cluster_Prediction_Draw_{st.session_state.get('prediction_count', 0) + 1}")
-
-            if st.button("Dự đoán cụm"):
+            if st.button("Dự đoán số"):
                 input_data = image_array.reshape(1, 28 * 28)
                 input_data_scaled = scaler.transform(input_data)
-                cluster_label = model.predict(input_data_scaled)[0] if model_type == "K-means" else model.fit_predict(input_data_scaled)[0]
+                prediction = model.predict(input_data_scaled)[0]
 
-                st.success(f"Dự đoán cụm: {cluster_label} ({'Nhiễu' if cluster_label == -1 and model_type == 'DBSCAN' else 'Cụm'})")
+                st.success(f"Dự đoán số: {prediction}")
+                st.write("Hình ảnh đầu vào:")
+                st.image(image_array, caption="Hình ảnh đã xử lý", width=100)
 
-                with mlflow.start_run(run_name=run_name, experiment_id=mlflow.get_experiment_by_name(experiment_name).experiment_id) as run:
-                    mlflow.log_param("model_run_id", selected_run_id if 'selected_run_id' in locals() else "From_Session")
-                    mlflow.log_param("predicted_cluster", cluster_label)
-                    np.save("input_image.npy", image_array)
-                    mlflow.log_artifact("input_image.npy", artifact_path="input_data")
-                    os.remove("input_image.npy")
+                # Comment phần logging dự đoán
+                # run_name = st.text_input("Nhập tên cho lần thử nghiệm này", value=f"Prediction_Draw_{st.session_state.get('prediction_count', 0) + 1}")
+                # if st.button("Log Dự đoán vào MLflow"):
+                #     with mlflow.start_run(run_name=run_name, experiment_id=mlflow.get_experiment_by_name(experiment_name).experiment_id) as run:
+                #         mlflow.log_param("model_run_id", selected_run_id if 'selected_run_id' in locals() else "From_Session")
+                #         mlflow.log_param("predicted_digit", prediction)
+                #         np.save("input_image.npy", image_array)
+                #         mlflow.log_artifact("input_image.npy", artifact_path="input_data")
+                #         os.remove("input_image.npy")
 
-                    run_id = run.info.run_id
-                    dagshub_link = f"https://dagshub.com/{DAGSHUB_USERNAME}/{DAGSHUB_REPO}/experiments/#/experiment/{experiment_name}/{run_id}"
-                    st.success(f"Dự đoán cụm: {cluster_label} (Run ID: {run_id}, Tên Run: {run_name})")
-                    st.markdown(f"Xem chi tiết tại: [DagsHub Experiment]({dagshub_link})")
-
-                if 'prediction_count' not in st.session_state:
-                    st.session_state['prediction_count'] = 0
-                st.session_state['prediction_count'] += 1
+                #         run_id = run.info.run_id
+                #         dagshub_link = f"https://dagshub.com/VietNam0410/vn0410/experiments/#/experiment/{experiment_name}/{run_id}"
+                #         st.success(f"Dự đoán: {prediction} (Run ID: {run_id}, Tên Run: {run_name})")
+                #         st.markdown(f"Xem chi tiết tại: [DagsHub Experiment]({dagshub_link})")
+                #
+                #         if 'prediction_count' not in st.session_state:
+                #             st.session_state['prediction_count'] = 0
+                #         st.session_state['prediction_count'] += 1
 
     else:
         uploaded_file = st.file_uploader("Tải lên ảnh chữ số (PNG/JPG/JPEG)", type=["png", "jpg", "jpeg"])
@@ -109,50 +125,55 @@ def show_clustering_demo():
             image_array = np.array(image) / 255.0
             st.image(image_array, caption="Hình ảnh đã tải", width=100)
 
-            run_name = st.text_input("Nhập tên cho lần thử nghiệm này", value=f"Cluster_Prediction_Upload_{st.session_state.get('prediction_count', 0) + 1}")
-
-            if st.button("Dự đoán cụm từ ảnh"):
+            if st.button("Dự đoán số từ ảnh"):
                 input_data = image_array.reshape(1, 28 * 28)
                 input_data_scaled = scaler.transform(input_data)
-                cluster_label = model.predict(input_data_scaled)[0] if model_type == "K-means" else model.fit_predict(input_data_scaled)[0]
+                prediction = model.predict(input_data_scaled)[0]
 
-                st.success(f"Dự đoán cụm: {cluster_label} ({'Nhiễu' if cluster_label == -1 and model_type == 'DBSCAN' else 'Cụm'})")
+                st.success(f"Dự đoán số: {prediction}")
+                st.write("Hình ảnh đầu vào:")
+                st.image(image_array, caption="Hình ảnh đã xử lý", width=100)
 
-                with mlflow.start_run(run_name=run_name, experiment_id=mlflow.get_experiment_by_name(experiment_name).experiment_id) as run:
-                    mlflow.log_param("model_run_id", selected_run_id if 'selected_run_id' in locals() else "From_Session")
-                    mlflow.log_param("predicted_cluster", cluster_label)
-                    np.save("input_image.npy", image_array)
-                    mlflow.log_artifact("input_image.npy", artifact_path="input_data")
-                    os.remove("input_image.npy")
+                # Comment phần logging dự đoán
+                # run_name = st.text_input("Nhập tên cho lần thử nghiệm này", value=f"Prediction_Upload_{st.session_state.get('prediction_count', 0) + 1}")
+                # if st.button("Log Dự đoán vào MLflow"):
+                #     with mlflow.start_run(run_name=run_name, experiment_id=mlflow.get_experiment_by_name(experiment_name).experiment_id) as run:
+                #         mlflow.log_param("model_run_id", selected_run_id if 'selected_run_id' in locals() else "From_Session")
+                #         mlflow.log_param("predicted_digit", prediction)
+                #         np.save("input_image.npy", image_array)
+                #         mlflow.log_artifact("input_image.npy", artifact_path="input_data")
+                #         os.remove("input_image.npy")
 
-                    run_id = run.info.run_id
-                    dagshub_link = f"https://dagshub.com/{DAGSHUB_USERNAME}/{DAGSHUB_REPO}/experiments/#/experiment/{experiment_name}/{run_id}"
-                    st.success(f"Dự đoán cụm: {cluster_label} (Run ID: {run_id}, Tên Run: {run_name})")
-                    st.markdown(f"Xem chi tiết tại: [DagsHub Experiment]({dagshub_link})")
+                #         run_id = run.info.run_id
+                #         dagshub_link = f"https://dagshub.com/VietNam0410/vn0410/experiments/#/experiment/{experiment_name}/{run_id}"
+                #         st.success(f"Dự đoán: {prediction} (Run ID: {run_id}, Tên Run: {run_name})")
+                #         st.markdown(f"Xem chi tiết tại: [DagsHub Experiment]({dagshub_link})")
+                #
+                #         if 'prediction_count' not in st.session_state:
+                #             st.session_state['prediction_count'] = 0
+                #         st.session_state['prediction_count'] += 1
 
-                if 'prediction_count' not in st.session_state:
-                    st.session_state['prediction_count'] = 0
-                st.session_state['prediction_count'] += 1
-
-    st.subheader("Lịch sử dự đoán cụm")
-    pred_runs = mlflow.search_runs(experiment_names=[experiment_name], filter_string="tags.mlflow.runName like 'Cluster_Prediction%'")
-    if not pred_runs.empty:
-        for _, run in pred_runs.iterrows():
-            run_id = run['run_id']
-            run_details = mlflow.get_run(run_id)
-            params = run_details.data.params if run_details.data.params else {}
-            cluster = params.get("predicted_cluster", "N/A")
-            run_name = run_details.data.tags.get("mlflow.runName", "N/A")
-            try:
-                image_path = mlflow.artifacts.download_artifacts(run_id=run_id, path="input_data/input_image.npy")
-                image_data = np.load(image_path)
-                st.image(image_data, caption=f"Dự đoán cụm: {cluster} (Tên Run: {run_name})", width=100)
-            except Exception as e:
-                st.write(f"Không thể tải hình ảnh cho run {run_id[:8]} (Tên Run: {run_name}): {str(e)}")
-                dagshub_link = f"https://dagshub.com/{DAGSHUB_USERNAME}/{DAGSHUB_REPO}/experiments/#/experiment/{experiment_name}/{run_id}"
-                st.markdown(f"Xem chi tiết tại: [DagsHub Experiment]({dagshub_link})")
-    else:
-        st.write("Chưa có dự đoán cụm nào được log.")
+    # Comment phần lịch sử dự đoán vì không log
+    st.subheader("Lịch sử dự đoán số")
+    # pred_runs = mlflow.search_runs(experiment_names=[experiment_name], filter_string="tags.mlflow.runName like 'Prediction%'")
+    # if not pred_runs.empty:
+    #     for _, run in pred_runs.iterrows():
+    #         run_id = run['run_id']
+    #         run_details = mlflow.get_run(run_id)
+    #         params = run_details.data.params if run_details.data.params else {}
+    #         digit = params.get("predicted_digit", "N/A")
+    #         run_name = run_details.data.tags.get("mlflow.runName", "N/A")
+    #         try:
+    #             image_path = mlflow.artifacts.download_artifacts(run_id=run_id, path="input_data/input_image.npy")
+    #             image_data = np.load(image_path)
+    #             st.image(image_data, caption=f"Dự đoán số: {digit} (Tên Run: {run_name})", width=100)
+    #         except Exception as e:
+    #             st.write(f"Không thể tải hình ảnh cho run {run_id[:8]} (Tên Run: {run_name}): {str(e)}")
+    #             dagshub_link = f"https://dagshub.com/VietNam0410/vn0410/experiments/#/experiment/{experiment_name}/{run_id}"
+    #             st.markdown(f"Xem chi tiết tại: [DagsHub Experiment]({dagshub_link})")
+    # else:
+    #     st.write("Chưa có dự đoán số nào được log.")
+    st.info("Chức năng lịch sử dự đoán số tạm thời bị tắt vì logging vào DagsHub đã bị vô hiệu hóa.")
 
 if __name__ == "__main__":
-    show_clustering_demo()
+    show_mnist_demo()

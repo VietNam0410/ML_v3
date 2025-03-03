@@ -10,23 +10,14 @@ import mlflow.sklearn
 import os
 import dagshub
 
-# Thiết lập thông tin DagsHub
-DAGSHUB_USERNAME = "VietNam0410"
-DAGSHUB_REPO = "vn0410"
+# Phần khởi tạo kết nối với DagsHub được comment để không truy cập ngay lập tức
+# with st.spinner("Đang kết nối với DagsHub..."):
+#     dagshub.init(repo_owner='VietNam0410', repo_name='vn0410', mlflow=True)
+#     mlflow.set_tracking_uri(f"https://dagshub.com/VietNam0410/vn0410.mlflow")
+# st.success("Đã kết nối với DagsHub thành công!")
 
-try:
-    with st.spinner("Đang kết nối với DagsHub..."):
-        dagshub.init(repo_owner=DAGSHUB_USERNAME, repo_name=DAGSHUB_REPO, mlflow=True)
-        mlflow.set_tracking_uri(f"https://dagshub.com/{DAGSHUB_USERNAME}/{DAGSHUB_REPO}.mlflow")
-        os.environ["MLFLOW_TRACKING_USERNAME"] = DAGSHUB_USERNAME
-        os.environ["MLFLOW_TRACKING_PASSWORD"] = os.getenv("MLFLOW_TRACKING_PASSWORD", "")
-    st.success("Đã kết nối với DagsHub thành công!")
-except Exception as e:
-    st.error(f"Không thể kết nối với DagsHub: {str(e)}. Sử dụng MLflow cục bộ.")
-    mlflow.set_tracking_uri(f"file://{os.path.abspath('mlruns')}")
-
-def plot_and_log_reduction(X_reduced, y, method, params, run_name):
-    """Vẽ biểu đồ scatter và log kết quả với MLflow."""
+def plot_and_log_reduction(X_reduced, y, method, params):
+    """Vẽ biểu đồ scatter và lưu cục bộ."""
     fig, ax = plt.subplots(figsize=(10, 6))
     sns.scatterplot(x=X_reduced[:, 0], y=X_reduced[:, 1], hue=y, palette="tab10", ax=ax, s=10)
     ax.set_title(f"{method} Visualization of MNIST")
@@ -34,11 +25,10 @@ def plot_and_log_reduction(X_reduced, y, method, params, run_name):
     ax.set_ylabel(f"{method} Component 2")
     st.pyplot(fig)
 
-    # Lưu plot vào file tạm và log với MLflow
+    # Lưu plot vào file cục bộ mà không log với MLflow
     plot_file = f"{method.lower()}_plot.png"
     fig.savefig(plot_file)
-    mlflow.log_artifact(plot_file)
-    os.remove(plot_file)
+    st.info(f"Biểu đồ đã được lưu cục bộ tại: {plot_file}")
 
 def train():
     st.header("Huấn luyện PCA và t-SNE trên MNIST 🧮")
@@ -76,22 +66,24 @@ def train():
                 X_train_pca = pca.fit_transform(X_train_scaled)
                 explained_variance_ratio = pca.explained_variance_ratio_.sum()
 
-                # Logging với MLflow
-                with mlflow.start_run(run_name=f"PCA_{n_components}_Components"):
-                    mlflow.log_param("method", "PCA")
-                    mlflow.log_param("n_components", n_components)
-                    mlflow.log_param("n_samples", X_train_scaled.shape[0])
-                    mlflow.log_metric("explained_variance_ratio", explained_variance_ratio)
-                    mlflow.sklearn.log_model(pca, "pca_model")
-                    plot_and_log_reduction(X_train_pca, y_train, "PCA", {"n_components": n_components}, "PCA")
-
-                    # Lưu mô hình vào session_state
-                    st.session_state['pca_model'] = pca
-                    st.session_state['X_train_pca'] = X_train_pca
-                    st.session_state['X_valid_pca'] = pca.transform(X_valid_scaled)
-                    st.session_state['X_test_pca'] = pca.transform(X_test_scaled)
-
+                # Hiển thị kết quả và lưu cục bộ
                 st.success(f"PCA hoàn tất! Tỷ lệ phương sai giải thích: {explained_variance_ratio:.4f}")
+                plot_and_log_reduction(X_train_pca, y_train, "PCA", {"n_components": n_components})
+
+                # Lưu mô hình vào session_state
+                st.session_state['pca_model'] = pca
+                st.session_state['X_train_pca'] = X_train_pca
+                st.session_state['X_valid_pca'] = pca.transform(X_valid_scaled)
+                st.session_state['X_test_pca'] = pca.transform(X_test_scaled)
+
+                # Comment phần logging với MLflow
+                # with mlflow.start_run(run_name=f"PCA_{n_components}_Components"):
+                #     mlflow.log_param("method", "PCA")
+                #     mlflow.log_param("n_components", n_components)
+                #     mlflow.log_param("n_samples", X_train_scaled.shape[0])
+                #     mlflow.log_metric("explained_variance_ratio", explained_variance_ratio)
+                #     mlflow.sklearn.log_model(pca, "pca_model")
+                #     plot_and_log_reduction(X_train_pca, y_train, "PCA", {"n_components": n_components}, "PCA")
 
     elif method == "t-SNE":
         perplexity = st.slider("Perplexity", 5, 50, 30)
@@ -101,23 +93,25 @@ def train():
                 tsne = TSNE(n_components=2, perplexity=perplexity, n_iter=n_iter, random_state=42)
                 X_train_tsne = tsne.fit_transform(X_train_scaled)
 
-                # Logging với MLflow
-                with mlflow.start_run(run_name=f"tSNE_Perplexity_{perplexity}"):
-                    mlflow.log_param("method", "t-SNE")
-                    mlflow.log_param("perplexity", perplexity)
-                    mlflow.log_param("n_iter", n_iter)
-                    mlflow.log_param("n_samples", X_train_scaled.shape[0])
-                    mlflow.sklearn.log_model(tsne, "tsne_model")
-                    plot_and_log_reduction(X_train_tsne, y_train, "t-SNE", {"perplexity": perplexity, "n_iter": n_iter}, "t-SNE")
-
-                    # Lưu mô hình vào session_state
-                    st.session_state['tsne_model'] = tsne
-                    st.session_state['X_train_tsne'] = X_train_tsne
-                    # t-SNE không có transform, dùng trên valid/test cần tính lại
-                    st.session_state['X_valid_tsne'] = tsne.fit_transform(X_valid_scaled)
-                    st.session_state['X_test_tsne'] = tsne.fit_transform(X_test_scaled)
-
+                # Hiển thị kết quả và lưu cục bộ
                 st.success("t-SNE hoàn tất!")
+                plot_and_log_reduction(X_train_tsne, y_train, "t-SNE", {"perplexity": perplexity, "n_iter": n_iter})
+
+                # Lưu mô hình vào session_state
+                st.session_state['tsne_model'] = tsne
+                st.session_state['X_train_tsne'] = X_train_tsne
+                # t-SNE không có transform, dùng trên valid/test cần tính lại
+                st.session_state['X_valid_tsne'] = tsne.fit_transform(X_valid_scaled)
+                st.session_state['X_test_tsne'] = tsne.fit_transform(X_test_scaled)
+
+                # Comment phần logging với MLflow
+                # with mlflow.start_run(run_name=f"tSNE_Perplexity_{perplexity}"):
+                #     mlflow.log_param("method", "t-SNE")
+                #     mlflow.log_param("perplexity", perplexity)
+                #     mlflow.log_param("n_iter", n_iter)
+                #     mlflow.log_param("n_samples", X_train_scaled.shape[0])
+                #     mlflow.sklearn.log_model(tsne, "tsne_model")
+                #     plot_and_log_reduction(X_train_tsne, y_train, "t-SNE", {"perplexity": perplexity, "n_iter": n_iter}, "t-SNE")
 
 if __name__ == "__main__":
     train()

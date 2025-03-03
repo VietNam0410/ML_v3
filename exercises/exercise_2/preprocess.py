@@ -7,47 +7,43 @@ import mlflow
 import os
 import dagshub
 
-# Thiết lập thông tin DagsHub
-DAGSHUB_USERNAME = "VietNam0410"
-DAGSHUB_REPO = "vn0410"
-
-try:
-    dagshub.init(repo_owner=DAGSHUB_USERNAME, repo_name=DAGSHUB_REPO, mlflow=True)
-    mlflow.set_tracking_uri(f"https://dagshub.com/{DAGSHUB_USERNAME}/{DAGSHUB_REPO}.mlflow")
-    os.environ["MLFLOW_TRACKING_USERNAME"] = DAGSHUB_USERNAME
-    os.environ["MLFLOW_TRACKING_PASSWORD"] = os.getenv("MLFLOW_TRACKING_PASSWORD", "")
-    st.success("Đã kết nối với DagsHub thành công!")
-except Exception as e:
-    st.error(f"Không thể kết nối với DagsHub: {str(e)}. Sử dụng MLflow cục bộ.")
-    mlflow.set_tracking_uri(f"file://{os.path.abspath('mlruns')}")
+# Phần khởi tạo kết nối với DagsHub được comment để không truy cập ngay lập tức
+# with st.spinner("Đang kết nối với DagsHub..."):
+#     dagshub.init(repo_owner='VietNam0410', repo_name='vn0410', mlflow=True)
+#     mlflow.set_tracking_uri(f"https://dagshub.com/VietNam0410/vn0410.mlflow")
+# st.success("Đã kết nối với DagsHub thành công!")
 
 # Hàm tải dữ liệu MNIST với cache
 @st.cache_data
 def load_mnist_from_openml():
     """Tải dữ liệu MNIST từ OpenML hoặc TensorFlow và lưu vào bộ nhớ đệm."""
-    try:
-        dataset = openml.datasets.get_dataset(554)
-        X, y, _, _ = dataset.get_data(target='class')
-        X = X.values.reshape(-1, 28, 28, 1) / 255.0
-        y = y.astype(np.int32)
-        return X, y
-    except Exception as e:
-        st.error(f"Không thể tải dữ liệu từ OpenML. Sử dụng dữ liệu từ TensorFlow: {str(e)}")
-        (X_train, y_train), (X_test, y_test) = mnist.load_data()
-        X = np.concatenate([X_train, X_test], axis=0) / 255.0
-        y = np.concatenate([y_train, y_test], axis=0)
-        return X.reshape(-1, 28, 28, 1), y
+    with st.spinner("Đang tải dữ liệu MNIST..."):
+        try:
+            dataset = openml.datasets.get_dataset(554)
+            X, y, _, _ = dataset.get_data(target='class')
+            X = X.values.reshape(-1, 28, 28, 1) / 255.0
+            y = y.astype(np.int32)
+            return X, y
+        except Exception as e:
+            st.error(f"Không thể tải dữ liệu từ OpenML. Sử dụng dữ liệu từ TensorFlow: {str(e)}")
+            (X_train, y_train), (X_test, y_test) = mnist.load_data()
+            X = np.concatenate([X_train, X_test], axis=0) / 255.0
+            y = np.concatenate([y_train, y_test], axis=0)
+            return X.reshape(-1, 28, 28, 1), y
 
 def preprocess_mnist():
     st.header("Tiền xử lý Dữ liệu MNIST Chữ số Viết Tay 🖌️")
 
+    # Đóng bất kỳ run nào đang hoạt động để tránh xung đột khi bắt đầu
     if mlflow.active_run():
         mlflow.end_run()
         st.info("Đã đóng run MLflow đang hoạt động trước đó.")
 
+    # Cho người dùng đặt tên Experiment (vẫn giữ để tương thích với MLflow nếu cần sau này)
     experiment_name = st.text_input("Nhập tên Experiment cho tiền xử lý", value="MNIST_Preprocessing")
-    if experiment_name:
-        mlflow.set_experiment(experiment_name)
+    # if experiment_name:
+    #     with st.spinner("Đang thiết lập Experiment trên DagsHub..."):
+    #         mlflow.set_experiment(experiment_name)
 
     # Tải dữ liệu từ bộ nhớ đệm nếu chưa có trong session_state
     if 'X_full' not in st.session_state or 'y_full' not in st.session_state:
@@ -70,73 +66,88 @@ def preprocess_mnist():
         st.error(f"Số lượng mẫu ({max_samples}) vượt quá tổng số mẫu có sẵn ({total_samples}). Đặt lại về {total_samples}.")
         max_samples = total_samples
 
-    test_size = st.slider("Chọn kích thước tập kiểm tra (%)", min_value=10, max_value=50, value=20, step=5) / 100
+    test_size = st.slider("Chọn tỷ lệ tập kiểm tra (%)", min_value=10, max_value=50, value=20, step=5) / 100
     remaining_size = 1 - test_size
     train_size_relative = st.slider(
-        "Chọn kích thước tập huấn luyện (% phần còn lại sau test)",
+        "Chọn tỷ lệ tập huấn luyện (% trên phần còn lại sau khi trừ tập test)",
         min_value=10, max_value=90, value=70, step=5
     ) / 100
+    
+    # Tính toán tỷ lệ tập train và validation dựa trên phần còn lại (remaining_size)
     train_size = remaining_size * train_size_relative
     val_size = remaining_size * (1 - train_size_relative)
 
-    st.write(f"Tỷ lệ dự kiến: Huấn luyện {train_size*100:.1f}%, Validation {val_size*100:.1f}%, Kiểm tra {test_size*100:.1f}%")
+    # Hiển thị tỷ lệ thực tế dựa trên toàn bộ dữ liệu
+    st.write(f"Tỷ lệ thực tế: Huấn luyện {train_size*100:.1f}%, Validation {val_size*100:.1f}%, Kiểm tra {test_size*100:.1f}%")
+    st.write(f"Kiểm tra tổng tỷ lệ: {train_size*100 + val_size*100 + test_size*100:.1f}% (phải luôn bằng 100%)")
 
     if st.button("Chia dữ liệu"):
-        if max_samples < total_samples:
-            indices = np.random.choice(total_samples, max_samples, replace=False)
-            X_subset = X_full[indices]
-            y_subset = y_full[indices]
-        else:
-            X_subset = X_full
-            y_subset = y_full
+        with st.spinner("Đang chia dữ liệu..."):
+            if max_samples < total_samples:
+                indices = np.random.choice(total_samples, max_samples, replace=False)
+                X_subset = X_full[indices]
+                y_subset = y_full[indices]
+            else:
+                X_subset = X_full
+                y_subset = y_full
 
-        X_remaining, X_test, y_remaining, y_test = train_test_split(
-            X_subset, y_subset, test_size=test_size, random_state=42
-        )
-        X_train, X_valid, y_train, y_valid = train_test_split(
-            X_remaining, y_remaining, test_size=val_size / remaining_size, random_state=42
-        )
+            # Chia tập test trước
+            X_remaining, X_test, y_remaining, y_test = train_test_split(
+                X_subset, y_subset, test_size=test_size, random_state=42
+            )
+            # Chia tập train và validation từ phần còn lại (remaining_size)
+            X_train, X_valid, y_train, y_valid = train_test_split(
+                X_remaining, y_remaining, train_size=train_size_relative, random_state=42
+            )
 
-        st.success(f"Đã chia dữ liệu với số lượng mẫu: {max_samples}. Kích thước: Huấn luyện {train_size*100:.1f}%, Validation {val_size*100:.1f}%, Kiểm tra {test_size*100:.1f}%! ✅")
-        st.write(f"Tập huấn luyện: {len(X_train)} mẫu")
-        st.write(f"Tập validation: {len(X_valid)} mẫu")
-        st.write(f"Tập kiểm tra: {len(X_test)} mẫu")
+            st.success(f"Đã chia dữ liệu với số lượng mẫu: {max_samples}. Kích thước: Huấn luyện {train_size*100:.1f}%, Validation {val_size*100:.1f}%, Kiểm tra {test_size*100:.1f}%! ✅")
+            st.write(f"Tập huấn luyện: {len(X_train)} mẫu")
+            st.write(f"Tập validation: {len(X_valid)} mẫu")
+            st.write(f"Tập kiểm tra: {len(X_test)} mẫu")
 
-        # Đảm bảo thư mục tồn tại trước khi lưu file
-        processed_dir = "exercises/exercise_mnist/data/processed"
-        os.makedirs(processed_dir, exist_ok=True)
-        processed_file = os.path.join(processed_dir, "mnist_processed.npz")
+            # Đảm bảo thư mục tồn tại trước khi lưu file
+            processed_dir = "exercises/exercise_mnist/data/processed"
+            os.makedirs(processed_dir, exist_ok=True)
+            processed_file = os.path.join(processed_dir, "mnist_processed.npz")
 
-        with mlflow.start_run(run_name=f"MNIST_Data_Split_{max_samples}_Samples") as run:
-            mlflow.log_param("max_samples", max_samples)
-            mlflow.log_param("train_size", train_size)
-            mlflow.log_param("val_size", val_size)
-            mlflow.log_param("test_size", test_size)
-            mlflow.log_metric("train_samples", len(X_train))
-            mlflow.log_metric("valid_samples", len(X_valid))
-            mlflow.log_metric("test_samples", len(X_test))
+            # Lưu dữ liệu cục bộ mà không log vào DagsHub
+            with st.spinner("Đang lưu dữ liệu đã chia..."):
+                np.savez(processed_file, 
+                         X_train=X_train, y_train=y_train,
+                         X_valid=X_valid, y_valid=y_valid,
+                         X_test=X_test, y_test=y_test)
+                st.success(f"Dữ liệu đã được lưu vào {processed_file} 💾")
 
-            # Lưu dữ liệu đã chia vào file .npz
-            np.savez(processed_file, 
-                     X_train=X_train, y_train=y_train,
-                     X_valid=X_valid, y_valid=y_valid,
-                     X_test=X_test, y_test=y_test)
-            mlflow.log_artifact(processed_file, artifact_path="processed_data")
-            os.remove(processed_file)  # Xóa file tạm sau khi log
+            # Comment phần logging vào MLflow/DagsHub
+            # with mlflow.start_run(run_name=f"MNIST_Data_Split_{max_samples}_Samples") as run:
+            #     mlflow.log_param("max_samples", max_samples)
+            #     mlflow.log_param("train_size", train_size)
+            #     mlflow.log_param("val_size", val_size)
+            #     mlflow.log_param("test_size", test_size)
+            #     mlflow.log_metric("train_samples", len(X_train))
+            #     mlflow.log_metric("valid_samples", len(X_valid))
+            #     mlflow.log_metric("test_samples", len(X_test))
 
-            run_id = run.info.run_id
-            dagshub_link = f"https://dagshub.com/{DAGSHUB_USERNAME}/{DAGSHUB_REPO}/experiments/#/experiment/{experiment_name}/{run_id}"
-            st.success("Dữ liệu đã được chia và log vào MLflow ✅.")
-            st.markdown(f"Xem chi tiết tại: [DagsHub Experiment]({dagshub_link})")
+            #     np.savez(processed_file, 
+            #              X_train=X_train, y_train=y_train,
+            #              X_valid=X_valid, y_valid=y_valid,
+            #              X_test=X_test, y_test=y_test)
+            #     mlflow.log_artifact(processed_file, artifact_path="processed_data")
+            #     os.remove(processed_file)  # Xóa file tạm sau khi log
 
-        st.session_state['mnist_data'] = {
-            'X_train': X_train,
-            'y_train': y_train,
-            'X_valid': X_valid,
-            'y_valid': y_valid,
-            'X_test': X_test,
-            'y_test': y_test
-        }
+            #     run_id = run.info.run_id
+            #     dagshub_link = f"https://dagshub.com/VietNam0410/vn0410/experiments/#/experiment/{experiment_name}/{run_id}"
+            #     st.success("Dữ liệu đã được chia và log vào MLflow ✅.")
+            #     st.markdown(f"Xem chi tiết tại: [DagsHub Experiment]({dagshub_link})")
+
+            st.session_state['mnist_data'] = {
+                'X_train': X_train,
+                'y_train': y_train,
+                'X_valid': X_valid,
+                'y_valid': y_valid,
+                'X_test': X_test,
+                'y_test': y_test
+            }
 
 if __name__ == "__main__":
     preprocess_mnist()

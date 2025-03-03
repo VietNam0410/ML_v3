@@ -9,19 +9,11 @@ import mlflow
 import os
 import dagshub
 
-# Thiết lập thông tin DagsHub
-DAGSHUB_USERNAME = "VietNam0410"
-DAGSHUB_REPO = "vn0410"
-
-try:
-    dagshub.init(repo_owner=DAGSHUB_USERNAME, repo_name=DAGSHUB_REPO, mlflow=True)
-    mlflow.set_tracking_uri(f"https://dagshub.com/{DAGSHUB_USERNAME}/{DAGSHUB_REPO}.mlflow")
-    os.environ["MLFLOW_TRACKING_USERNAME"] = DAGSHUB_USERNAME
-    os.environ["MLFLOW_TRACKING_PASSWORD"] = os.getenv("MLFLOW_TRACKING_PASSWORD", "")
-    st.success("Đã kết nối với DagsHub thành công!")
-except Exception as e:
-    st.error(f"Không thể kết nối với DagsHub: {str(e)}. Sử dụng MLflow cục bộ.")
-    mlflow.set_tracking_uri(f"file://{os.path.abspath('mlruns')}")
+# Phần khởi tạo kết nối với DagsHub được comment để không truy cập ngay lập tức
+# with st.spinner("Đang kết nối với DagsHub..."):
+#     dagshub.init(repo_owner='VietNam0410', repo_name='vn0410', mlflow=True)
+#     mlflow.set_tracking_uri(f"https://dagshub.com/VietNam0410/vn0410.mlflow")
+# st.success("Đã kết nối với DagsHub thành công!")
 
 # Hàm chuẩn hóa dữ liệu với cache
 @st.cache_data
@@ -35,13 +27,16 @@ def scale_data(X_train, X_valid):
 def train_mnist():
     st.header("Huấn luyện Mô hình Nhận diện Chữ số MNIST 🧮")
 
+    # Đóng bất kỳ run nào đang hoạt động để tránh xung đột khi bắt đầu
     if mlflow.active_run():
         mlflow.end_run()
         st.info("Đã đóng run MLflow đang hoạt động trước đó.")
 
+    # Cho người dùng đặt tên Experiment (vẫn giữ để tương thích với MLflow nếu cần sau này)
     experiment_name = st.text_input("Nhập Tên Experiment cho Huấn luyện", value="MNIST_Training")
-    if experiment_name:
-        mlflow.set_experiment(experiment_name)
+    # if experiment_name:
+    #     with st.spinner("Đang thiết lập Experiment trên DagsHub..."):
+    #         mlflow.set_experiment(experiment_name)
 
     if 'mnist_data' not in st.session_state or st.session_state['mnist_data'] is None:
         st.error("Dữ liệu MNIST đã xử lý không tìm thấy. Vui lòng hoàn tất tiền xử lý trong 'Tiền xử lý Dữ liệu MNIST' trước.")
@@ -83,7 +78,7 @@ def train_mnist():
         model_params = {"max_depth": max_depth, "min_samples_split": min_samples_split}
 
     if st.button("Huấn luyện mô hình"):
-        with mlflow.start_run(run_name=f"{model_choice}_MNIST_{experiment_name}") as run:
+        with st.spinner("Đang huấn luyện mô hình..."):
             if model_choice == "SVM (Support Vector Machine)":
                 model = SVC(**model_params, random_state=42)
             else:
@@ -97,18 +92,29 @@ def train_mnist():
             st.write(f"Tham số: {model_params}")
             st.write(f"Độ chính xác huấn luyện: {train_acc:.4f}")
             st.write(f"Độ chính xác validation: {valid_acc:.4f}")
+            st.success(f"Huấn luyện {model_choice} hoàn tất cục bộ ✅.")
 
-            mlflow.log_params(model_params)
-            mlflow.log_param("model_type", model_choice)
-            mlflow.log_metric("train_accuracy", train_acc)
-            mlflow.log_metric("valid_accuracy", valid_acc)
-            mlflow.sklearn.log_model(model, "model", input_example=X_train_scaled[:1])
-            mlflow.sklearn.log_model(scaler, "scaler", input_example=X_train[:1])
+            # Lưu mô hình cục bộ (tùy chọn) để sử dụng sau
+            model_file = "exercises/exercise_mnist/model.pkl"
+            os.makedirs(os.path.dirname(model_file), exist_ok=True)
+            with open(model_file, "wb") as f:
+                import pickle
+                pickle.dump(model, f)
+            st.info(f"Mô hình đã được lưu cục bộ tại: {model_file}")
 
-            run_id = run.info.run_id
-            dagshub_link = f"https://dagshub.com/{DAGSHUB_USERNAME}/{DAGSHUB_REPO}/experiments/#/experiment/{experiment_name}/{run_id}"
-            st.success(f"Huấn luyện {model_choice} hoàn tất và log vào MLflow thành công! ✅ (Run ID: {run_id})")
-            st.markdown(f"Xem chi tiết tại: [DagsHub Experiment]({dagshub_link})")
+            # Comment phần logging vào MLflow/DagsHub
+            # with mlflow.start_run(run_name=f"{model_choice}_MNIST_{experiment_name}") as run:
+            #     mlflow.log_params(model_params)
+            #     mlflow.log_param("model_type", model_choice)
+            #     mlflow.log_metric("train_accuracy", train_acc)
+            #     mlflow.log_metric("valid_accuracy", valid_acc)
+            #     mlflow.sklearn.log_model(model, "model", input_example=X_train_scaled[:1])
+            #     mlflow.sklearn.log_model(scaler, "scaler", input_example=X_train[:1])
+
+            #     run_id = run.info.run_id
+            #     dagshub_link = f"https://dagshub.com/VietNam0410/vn0410/experiments/#/experiment/{experiment_name}/{run_id}"
+            #     st.success(f"Huấn luyện {model_choice} hoàn tất và log vào MLflow thành công! ✅ (Run ID: {run_id})")
+            #     st.markdown(f"Xem chi tiết tại: [DagsHub Experiment]({dagshub_link})")
 
             st.session_state['mnist_model'] = model
             st.session_state['scaler'] = scaler
