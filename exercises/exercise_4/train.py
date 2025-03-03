@@ -20,7 +20,7 @@ def plot_and_log_reduction(X_reduced, y, method, params):
     """Vẽ biểu đồ scatter và lưu cục bộ."""
     fig, ax = plt.subplots(figsize=(10, 6))
     sns.scatterplot(x=X_reduced[:, 0], y=X_reduced[:, 1], hue=y, palette="tab10", ax=ax, s=10)
-    ax.set_title(f"{method} Visualization of MNIST")
+    ax.set_title(f"{method} Visualization of MNIST (Train Set)")
     ax.set_xlabel(f"{method} Component 1")
     ax.set_ylabel(f"{method} Component 2")
     st.pyplot(fig)
@@ -59,7 +59,7 @@ def train():
     method = st.selectbox("Chọn phương pháp giảm chiều để huấn luyện", ["PCA", "t-SNE"])
 
     if method == "PCA":
-        n_components = st.slider("Số thành phần PCA", 2, 50, 2)
+        n_components = st.slider("Số thành phần PCA", 2, min(50, X_train_scaled.shape[1]), 2, key="pca_n_components")
         if st.button("Huấn luyện PCA"):
             with st.spinner("Đang huấn luyện PCA..."):
                 pca = PCA(n_components=n_components)
@@ -70,7 +70,7 @@ def train():
                 st.success(f"PCA hoàn tất! Tỷ lệ phương sai giải thích: {explained_variance_ratio:.4f}")
                 plot_and_log_reduction(X_train_pca, y_train, "PCA", {"n_components": n_components})
 
-                # Lưu mô hình vào session_state
+                # Lưu mô hình và dữ liệu giảm chiều vào session_state
                 st.session_state['pca_model'] = pca
                 st.session_state['X_train_pca'] = X_train_pca
                 st.session_state['X_valid_pca'] = pca.transform(X_valid_scaled)
@@ -83,11 +83,11 @@ def train():
                 #     mlflow.log_param("n_samples", X_train_scaled.shape[0])
                 #     mlflow.log_metric("explained_variance_ratio", explained_variance_ratio)
                 #     mlflow.sklearn.log_model(pca, "pca_model")
-                #     plot_and_log_reduction(X_train_pca, y_train, "PCA", {"n_components": n_components}, "PCA")
+                #     plot_and_log_reduction(X_train_pca, y_train, "PCA", {"n_components": n_components})
 
     elif method == "t-SNE":
-        perplexity = st.slider("Perplexity", 5, 50, 30)
-        n_iter = st.slider("Số lần lặp", 250, 1000, 500)
+        perplexity = st.slider("Perplexity", 5, 50, 30, key="tsne_perplexity")
+        n_iter = st.slider("Số lần lặp", 250, 1000, 500, key="tsne_n_iter")
         if st.button("Huấn luyện t-SNE"):
             with st.spinner("Đang huấn luyện t-SNE (có thể lâu với dữ liệu lớn)..."):
                 tsne = TSNE(n_components=2, perplexity=perplexity, n_iter=n_iter, random_state=42)
@@ -97,7 +97,7 @@ def train():
                 st.success("t-SNE hoàn tất!")
                 plot_and_log_reduction(X_train_tsne, y_train, "t-SNE", {"perplexity": perplexity, "n_iter": n_iter})
 
-                # Lưu mô hình vào session_state
+                # Lưu mô hình và dữ liệu giảm chiều vào session_state
                 st.session_state['tsne_model'] = tsne
                 st.session_state['X_train_tsne'] = X_train_tsne
                 # t-SNE không có transform, dùng trên valid/test cần tính lại
@@ -111,7 +111,7 @@ def train():
                 #     mlflow.log_param("n_iter", n_iter)
                 #     mlflow.log_param("n_samples", X_train_scaled.shape[0])
                 #     mlflow.sklearn.log_model(tsne, "tsne_model")
-                #     plot_and_log_reduction(X_train_tsne, y_train, "t-SNE", {"perplexity": perplexity, "n_iter": n_iter}, "t-SNE")
+                #     plot_and_log_reduction(X_train_tsne, y_train, "t-SNE", {"perplexity": perplexity, "n_iter": n_iter})
 
 if __name__ == "__main__":
     train()

@@ -2,8 +2,6 @@ import streamlit as st
 import numpy as np
 import mlflow
 import mlflow.sklearn
-import matplotlib.pyplot as plt
-import seaborn as sns
 from PIL import Image
 from sklearn.svm import SVC
 from sklearn.tree import DecisionTreeClassifier
@@ -19,7 +17,7 @@ import dagshub
 
 def demo():
     st.header("Demo Dự đoán Số MNIST với Mô hình Phân loại 🖌️")
-    experiment_name = "MNIST_Training"  # Đổi sang experiment của phân loại số
+    experiment_name = "MNIST_Training"  # Liên kết với train_mnist.py
 
     # Kiểm tra dữ liệu và mô hình từ preprocess và train_mnist
     if 'mnist_data' not in st.session_state:
