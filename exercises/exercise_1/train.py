@@ -11,32 +11,26 @@ from common.utils import load_data
 import os
 import dagshub
 
-# Thiết lập thông tin DagsHub
-DAGSHUB_USERNAME = "VietNam0410"
-DAGSHUB_REPO = "vn0410"
-
-try:
-    with st.spinner("Đang kết nối với DagsHub..."):
-        dagshub.init(repo_owner=DAGSHUB_USERNAME, repo_name=DAGSHUB_REPO, mlflow=True)
-        mlflow.set_tracking_uri(f"https://dagshub.com/{DAGSHUB_USERNAME}/{DAGSHUB_REPO}.mlflow")
-        os.environ["MLFLOW_TRACKING_USERNAME"] = DAGSHUB_USERNAME
-        os.environ["MLFLOW_TRACKING_PASSWORD"] = os.getenv("MLFLOW_TRACKING_PASSWORD", "")
-    st.success("Đã kết nối với DagsHub thành công!")
-except Exception as e:
-    st.error(f"Không thể kết nối với DagsHub: {str(e)}. Sử dụng MLflow cục bộ.")
-    mlflow.set_tracking_uri(f"file://{os.path.abspath('mlruns')}")
+# Phần khởi tạo kết nối với DagsHub được comment để không truy cập ngay lập tức
+# with st.spinner("Đang kết nối với DagsHub..."):
+#     dagshub.init(repo_owner='VietNam0410', repo_name='vn0410', mlflow=True)
+#     # Cấu hình MLflow tracking URI
+#     mlflow.set_tracking_uri(f"https://dagshub.com/VietNam0410/vn0410.mlflow")
+# st.success("Đã kết nối với DagsHub thành công!")
 
 def train_model():
     st.header("Train Titanic Survival Model 🧑‍🚀")
 
+    # Đóng bất kỳ run nào đang hoạt động để tránh xung đột khi bắt đầu
     if mlflow.active_run():
         mlflow.end_run()
         st.info("Đã đóng run MLflow đang hoạt động trước đó.")
 
+    # Cho người dùng đặt tên Experiment (vẫn giữ để tương thích với MLflow nếu cần sau này)
     experiment_name = st.text_input("Enter Experiment Name for Training", value="Titanic_Training")
-    if experiment_name:
-        with st.spinner("Đang thiết lập Experiment..."):
-            mlflow.set_experiment(experiment_name)
+    # if experiment_name:
+    #     with st.spinner("Đang thiết lập Experiment trên DagsHub..."):
+    #         mlflow.set_experiment(experiment_name)
 
     processed_file = "exercises/exercise_1/data/processed/titanic_processed.csv"
     try:
@@ -84,14 +78,15 @@ def train_model():
             st.write("Dữ liệu validation (X_valid):", X_valid.head())
             st.write("Dữ liệu kiểm tra (X_test):", X_test.head())
 
-            with mlflow.start_run(run_name="Data_Split") as run:
-                mlflow.log_param("test_size", test_size)
-                mlflow.log_param("valid_size", valid_size)
-                mlflow.log_param("train_size", train_size)
-                run_id = run.info.run_id
-                dagshub_link = f"https://dagshub.com/{DAGSHUB_USERNAME}/{DAGSHUB_REPO}/experiments/#/experiment/{experiment_name}/{run_id}"
-                st.success("Dữ liệu đã được chia và log vào MLflow ✅.")
-                st.markdown(f"Xem chi tiết tại: [DagsHub Experiment]({dagshub_link})")
+            # Comment phần logging chia dữ liệu
+            # with mlflow.start_run(run_name="Data_Split") as run:
+            #     mlflow.log_param("test_size", test_size)
+            #     mlflow.log_param("valid_size", valid_size)
+            #     mlflow.log_param("train_size", train_size)
+            #     run_id = run.info.run_id
+            #     dagshub_link = f"https://dagshub.com/VietNam0410/vn0410/experiments/#/experiment/{experiment_name}/{run_id}"
+            #     st.success("Dữ liệu đã được chia và log vào MLflow ✅.")
+            #     st.markdown(f"Xem chi tiết tại: [DagsHub Experiment]({dagshub_link})")
 
             st.session_state['X_train_initial'] = X_train_initial
             st.session_state['X_valid'] = X_valid
@@ -179,18 +174,19 @@ def train_model():
                 fold_summary_df = pd.DataFrame(fold_summary)
                 st.write(fold_summary_df)
 
-                with mlflow.start_run(run_name=f"CV_{k_folds}_Folds_Summary") as run:
-                    mlflow.log_param("k_folds", k_folds)
-                    for i, size in enumerate(valid_sizes):
-                        mlflow.log_param(f"fold_{i+1}_valid_size", size)
-                    for _, row in fold_summary_df.iterrows():
-                        mlflow.log_metric(f"fold_{row['Fold']}_train_size", row["Train Size"])
-                        mlflow.log_metric(f"fold_{row['Fold']}_valid_size", row["Valid Size"])
-                        mlflow.log_metric(f"fold_{row['Fold']}_test_size", row["Test Size"])
-                    run_id = run.info.run_id
-                    dagshub_link = f"https://dagshub.com/{DAGSHUB_USERNAME}/{DAGSHUB_REPO}/experiments/#/experiment/{experiment_name}/{run_id}"
-                    st.success(f"Tạo và tùy chỉnh {k_folds}-fold cross validation, log vào MLflow ✅.")
-                    st.markdown(f"Xem chi tiết tại: [DagsHub Experiment]({dagshub_link})")
+                # Comment phần logging cross-validation
+                # with mlflow.start_run(run_name=f"CV_{k_folds}_Folds_Summary") as run:
+                #     mlflow.log_param("k_folds", k_folds)
+                #     for i, size in enumerate(valid_sizes):
+                #         mlflow.log_param(f"fold_{i+1}_valid_size", size)
+                #     for _, row in fold_summary_df.iterrows():
+                #         mlflow.log_metric(f"fold_{row['Fold']}_train_size", row["Train Size"])
+                #         mlflow.log_metric(f"fold_{row['Fold']}_valid_size", row["Valid Size"])
+                #         mlflow.log_metric(f"fold_{row['Fold']}_test_size", row["Test Size"])
+                #     run_id = run.info.run_id
+                #     dagshub_link = f"https://dagshub.com/VietNam0410/vn0410/experiments/#/experiment/{experiment_name}/{run_id}"
+                #     st.success(f"Tạo và tùy chỉnh {k_folds}-fold cross validation, log vào MLflow ✅.")
+                #     st.markdown(f"Xem chi tiết tại: [DagsHub Experiment]({dagshub_link})")
 
     st.subheader("Huấn luyện mô hình 🎯")
     if 'X_train_initial' not in st.session_state:
@@ -235,36 +231,39 @@ def train_model():
                 y_valid = st.session_state['y_valid']
                 train_source = "Dữ liệu ban đầu"
 
-            with mlflow.start_run(run_name=f"{model_choice}_Titanic") as run:
-                if model_choice == "Random Forest":
-                    model = RandomForestClassifier(**model_params)
-                elif model_choice == "Logistic Regression":
-                    model = LogisticRegression(**model_params)
-                elif model_choice == "Polynomial Regression":
-                    model = Pipeline([
-                        ("poly", PolynomialFeatures(degree=model_params["degree"])),
-                        ("logistic", LogisticRegression(C=model_params["C"], random_state=42))
-                    ])
+            # Huấn luyện mô hình cục bộ trước khi logging
+            if model_choice == "Random Forest":
+                model = RandomForestClassifier(**model_params)
+            elif model_choice == "Logistic Regression":
+                model = LogisticRegression(**model_params)
+            elif model_choice == "Polynomial Regression":
+                model = Pipeline([
+                    ("poly", PolynomialFeatures(degree=model_params["degree"])),
+                    ("logistic", LogisticRegression(C=model_params["C"], random_state=42))
+                ])
 
-                model.fit(X_train, y_train)
-                train_score = model.score(X_train, y_train)
-                valid_score = model.score(X_valid, y_valid)
+            model.fit(X_train, y_train)
+            train_score = model.score(X_train, y_train)
+            valid_score = model.score(X_valid, y_valid)
 
-                st.write(f"Mô hình đã chọn: {model_choice}")
-                st.write(f"Nguồn dữ liệu huấn luyện: {train_source}")
-                st.write(f"Tham số: {model_params}")
-                st.write(f"Độ chính xác huấn luyện: {train_score:.4f}")
-                st.write(f"Độ chính xác validation: {valid_score:.4f}")
+            st.write(f"Mô hình đã chọn: {model_choice}")
+            st.write(f"Nguồn dữ liệu huấn luyện: {train_source}")
+            st.write(f"Tham số: {model_params}")
+            st.write(f"Độ chính xác huấn luyện: {train_score:.4f}")
+            st.write(f"Độ chính xác validation: {valid_score:.4f}")
+            st.success(f"Huấn luyện {model_choice} hoàn tất cục bộ ✅.")
 
-                mlflow.log_params(model_params)
-                mlflow.log_param("train_source", train_source)
-                mlflow.log_metric("train_accuracy", train_score)
-                mlflow.log_metric("valid_accuracy", valid_score)
-                mlflow.sklearn.log_model(model, "model")
-                run_id = run.info.run_id
-                dagshub_link = f"https://dagshub.com/{DAGSHUB_USERNAME}/{DAGSHUB_REPO}/experiments/#/experiment/{experiment_name}/{run_id}"
-                st.success(f"Huấn luyện {model_choice} hoàn tất và log vào MLflow ✅.")
-                st.markdown(f"Xem chi tiết tại: [DagsHub Experiment]({dagshub_link})")
+            # Comment phần logging vào MLflow/DagsHub
+            # with mlflow.start_run(run_name=f"{model_choice}_Titanic") as run:
+            #     mlflow.log_params(model_params)
+            #     mlflow.log_param("train_source", train_source)
+            #     mlflow.log_metric("train_accuracy", train_score)
+            #     mlflow.log_metric("valid_accuracy", valid_score)
+            #     mlflow.sklearn.log_model(model, "model")
+            #     run_id = run.info.run_id
+            #     dagshub_link = f"https://dagshub.com/VietNam0410/vn0410/experiments/#/experiment/{experiment_name}/{run_id}"
+            #     st.success(f"Huấn luyện {model_choice} hoàn tất và log vào MLflow ✅.")
+            #     st.markdown(f"Xem chi tiết tại: [DagsHub Experiment]({dagshub_link})")
 
 if __name__ == "__main__":
     train_model()
