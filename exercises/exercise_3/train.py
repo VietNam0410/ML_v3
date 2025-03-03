@@ -18,7 +18,7 @@ def mlflow_input():
     os.environ["MLFLOW_TRACKING_PASSWORD"] = "22fd02345f8ff45482a20960058627630acaf190"  # Thay bằng token cá nhân của bạn
     DAGSHUB_REPO = "vn0410"
     return DAGSHUB_REPO
-
+@st.cache_data
 def train_clustering():
     st.header("Huấn luyện Mô hình Clustering trên MNIST 🧮")
 

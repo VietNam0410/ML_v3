@@ -19,6 +19,7 @@ def mlflow_input():
     return DAGSHUB_REPO
 
 # Cache dữ liệu MNIST
+@st.cache_data
 def load_mnist_from_openml():
     with st.spinner("Đang tải dữ liệu MNIST..."):
         try:
