@@ -6,16 +6,17 @@ from common.utils import load_data
 import os
 import dagshub
 import datetime
+from sklearn.ensemble import RandomForestClassifier  # Thêm để kiểm tra nếu cần
 
 # Hàm khởi tạo MLflow
 def mlflow_input():
-    DAGSHUB_MLFLOW_URI = "https://dagshub.com/VietNam0410/vn0410.mlflow"
+    DAGSHUB_MLFLOW_URI = "https://dagshub.com/VietNam0410/ML_v3.mlflow"
     mlflow.set_tracking_uri(DAGSHUB_MLFLOW_URI)
-    st.session_state['mlflow_url'] = DAGSHUB_MLFLOW_URI
     os.environ["MLFLOW_TRACKING_USERNAME"] = "VietNam0410"
-    os.environ["MLFLOW_TRACKING_PASSWORD"] = "22fd02345f8ff45482a20960058627630acaf190"  # Thay bằng token cá nhân của bạn
-    DAGSHUB_REPO = "vn0410"
-    return DAGSHUB_REPO
+    os.environ["MLFLOW_TRACKING_PASSWORD"] = "c9db6bdcca1dfed76d2af2cdb15a9277e6732d6b"
+    dagshub.auth.add_app_token(token=os.environ["MLFLOW_TRACKING_PASSWORD"])
+    dagshub.init("vn0410", "VietNam0410", mlflow=True)
+    return DAGSHUB_MLFLOW_URI
 
 # Hàm tải dữ liệu với cache
 @st.cache_data
@@ -41,47 +42,62 @@ def get_mlflow_experiments():
         st.error(f"Không thể lấy danh sách các experiment từ MLflow: {str(e)}")
         return {}
 
+def get_prediction_confidence(model, X_selected):
+    """Tính độ tin cậy của dự đoán (probability) từ mô hình."""
+    try:
+        if hasattr(model, 'predict_proba'):
+            probabilities = model.predict_proba(X_selected)
+            confidence = probabilities[0][1]  # Xác suất dự đoán lớp 1 (survived)
+            return confidence
+        else:
+            st.warning("Mô hình không hỗ trợ predict_proba. Đặt độ tin cậy mặc định là 0.5.")
+            return 0.5
+    except Exception as e:
+        st.error(f"Không thể tính độ tin cậy dự đoán: {str(e)}")
+        return 0.5
+
 def show_demo():
     st.header("Dự đoán Sinh tồn Titanic")
 
-    # Đóng bất kỳ run nào đang hoạt động để tránh xung đột khi bắt đầu
     if mlflow.active_run():
         mlflow.end_run()
         st.info("Đã đóng run MLflow đang hoạt động trước đó.")
 
-    # Gọi hàm mlflow_input để thiết lập MLflow
     DAGSHUB_REPO = mlflow_input()
 
-    # Lấy tất cả các experiment từ MLflow
-    experiments = get_mlflow_experiments()
-    if not experiments:
-        st.error("Không tìm thấy experiment nào trong DagsHub MLflow. Vui lòng kiểm tra kết nối hoặc huấn luyện mô hình trước.")
-        return
-
-    experiment_options = list(experiments.keys())
-    experiment_name = st.selectbox(
-        "Chọn Experiment để lấy mô hình",
-        options=experiment_options,
-        help="Chọn một experiment đã huấn luyện mô hình."
-    )
-
-    with st.spinner("Đang thiết lập Experiment trên DagsHub..."):
+    training_experiment_name = "Titanic_Training"
+    with st.spinner("Đang thiết lập Experiment huấn luyện trên DagsHub..."):
         try:
             client = mlflow.tracking.MlflowClient()
-            experiment = client.get_experiment_by_name(experiment_name)
-            if experiment and experiment.lifecycle_stage == "deleted":
-                st.warning(f"Experiment '{experiment_name}' đã bị xóa trước đó. Vui lòng chọn tên khác hoặc khôi phục experiment qua DagsHub UI.")
-                new_experiment_name = st.text_input("Nhập tên Experiment mới", value=f"{experiment_name}_Restored_{datetime.datetime.now().strftime('%Y%m%d')}")
-                if new_experiment_name:
-                    mlflow.set_experiment(new_experiment_name)
-                    experiment_name = new_experiment_name
-                else:
-                    st.error("Vui lòng nhập tên experiment mới để tiếp tục.")
-                    return
+            experiment = client.get_experiment_by_name(training_experiment_name)
+            if not experiment:
+                client.create_experiment(training_experiment_name)
+                mlflow.set_experiment(training_experiment_name)
+                st.success(f"Đã tạo Experiment mới '{training_experiment_name}' thành công!")
+            elif experiment and experiment.lifecycle_stage == "deleted":
+                client.restore_experiment(experiment.experiment_id)
+                mlflow.set_experiment(training_experiment_name)
+                st.success(f"Đã khôi phục Experiment '{training_experiment_name}' thành công!")
             else:
-                mlflow.set_experiment(experiment_name)
+                mlflow.set_experiment(training_experiment_name)
         except Exception as e:
-            st.error(f"Lỗi khi thiết lập experiment: {str(e)}")
+            st.error(f"Lỗi khi thiết lập experiment huấn luyện: {str(e)}")
+            return
+
+    demo_experiment_name = "Titanic_Demo"
+    with st.spinner("Đang thiết lập Experiment demo trên DagsHub..."):
+        try:
+            experiment = client.get_experiment_by_name(demo_experiment_name)
+            if not experiment:
+                client.create_experiment(demo_experiment_name)
+                st.success(f"Đã tạo Experiment mới '{demo_experiment_name}' thành công!")
+            elif experiment and experiment.lifecycle_stage == "deleted":
+                client.restore_experiment(experiment.experiment_id)
+                st.success(f"Đã khôi phục Experiment '{demo_experiment_name}' thành công!")
+            else:
+                st.success(f"Đã thiết lập Experiment '{demo_experiment_name}' thành công!")
+        except Exception as e:
+            st.error(f"Lỗi khi thiết lập experiment demo: {str(e)}")
             return
 
     tab1, tab2, tab3 = st.tabs(["Dự đoán", "Xem Kết quả Đã Log", "Xóa Log"])
@@ -92,33 +108,34 @@ def show_demo():
         try:
             with st.spinner("Đang tải dữ liệu đã xử lý..."):
                 data = load_cached_data(processed_file)
-            X_full = data  # Sử dụng tất cả các cột, không loại bỏ cột nào
+            X_full = data
         except FileNotFoundError:
             st.error("Dữ liệu đã xử lý không tìm thấy. Vui lòng tiền xử lý dữ liệu trước.")
             return
 
-        # Lấy danh sách runs từ experiment đã chọn
-        st.write(f"Chọn mô hình đã huấn luyện từ Experiment '{experiment_name}':")
+        st.write(f"Chọn mô hình đã huấn luyện từ Experiment '{training_experiment_name}':")
         with st.spinner("Đang tải danh sách runs từ DagsHub..."):
-            runs = mlflow.search_runs(experiment_ids=[experiments[experiment_name]])
+            runs = mlflow.search_runs(experiment_ids=[client.get_experiment_by_name(training_experiment_name).experiment_id])
         if runs.empty:
-            st.error(f"Không tìm thấy mô hình nào trong experiment '{experiment_name}'. Vui lòng huấn luyện mô hình trong 'train.py' trước.")
+            st.error(f"Không tìm thấy mô hình nào trong experiment '{training_experiment_name}'. Vui lòng huấn luyện mô hình trong 'train.py' trước.")
             return
 
         run_options = [f"ID Run: {run['run_id']} - {run.get('tags.mlflow.runName', 'Không tên')}" for _, run in runs.iterrows()]
         selected_run = st.selectbox("Chọn run chứa mô hình", options=run_options)
         selected_run_id = selected_run.split("ID Run: ")[1].split(" - ")[0]
 
-        # Tải mô hình từ MLflow
-        try:
-            with st.spinner("Đang tải mô hình từ DagsHub MLflow..."):
-                model = mlflow.sklearn.load_model(f"runs:/{selected_run_id}/model")
-            st.session_state['model'] = model
-            st.write(f"Mô hình đã được tải từ MLflow (Run ID: {selected_run_id})")
-        except Exception as e:
-            st.error(f"Không thể tải mô hình từ Run ID {selected_run_id}: {str(e)}")
-            return
+        if 'model' not in st.session_state or st.session_state.get('selected_run_id') != selected_run_id:
+            try:
+                with st.spinner("Đang tải mô hình từ DagsHub MLflow..."):
+                    model = mlflow.sklearn.load_model(f"runs:/{selected_run_id}/model")
+                st.session_state['model'] = model
+                st.session_state['selected_run_id'] = selected_run_id
+                st.write(f"Mô hình đã được tải từ MLflow (Run ID: {selected_run_id})")
+            except Exception as e:
+                st.error(f"Không thể tải mô hình từ Run ID {selected_run_id}: {str(e)}")
+                return
 
+        model = st.session_state['model']
         expected_columns = model.feature_names_in_ if hasattr(model, 'feature_names_in_') else X_full.columns.tolist()
 
         st.write("Nhập giá trị cho tất cả các cột (dựa trên dữ liệu huấn luyện của mô hình):")
@@ -164,103 +181,170 @@ def show_demo():
         st.write("Dữ liệu Nhập của Bạn cho Dự đoán:")
         st.write(X_selected)
 
+        predict_name = st.text_input(
+            "Đặt tên cho dự đoán này (tối đa 50 ký tự, để trống để tự động tạo)",
+            value=f"Prediction_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}",
+            max_chars=50,
+            key="predict_name"
+        )
+        if not predict_name.strip():
+            predict_name = f"Prediction_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+        # Dự đoán
         if st.button("Thực hiện Dự đoán"):
             with st.spinner("Đang thực hiện dự đoán..."):
                 try:
                     predictions = model.predict(X_selected)
-                    result_df = pd.DataFrame({"Dự đoán Sinh tồn": predictions})
+                    confidence = get_prediction_confidence(model, X_selected)
+                    st.session_state['predictions'] = predictions
+                    st.session_state['confidence'] = confidence
+                    st.session_state['input_data'] = input_data
+
+                    result_df = pd.DataFrame({"Dự đoán Sinh tồn": predictions, "Độ Tin Cậy": [confidence]})
                     st.write("Kết quả Dự đoán:")
                     st.write(result_df)
 
                     st.write("Dữ liệu Nhập của Bạn (Tóm tắt):")
                     st.write(pd.DataFrame([input_data]))
-
-                    # Logging dự đoán vào MLflow trên DagsHub với tên và ID cụ thể
-                    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                    demo_run_name = f"Demo_Predict_{timestamp}"
-                    if st.button("Log Dự đoán vào MLflow"):
-                        with st.spinner("Đang log dữ liệu dự đoán vào DagsHub..."):
-                            with mlflow.start_run(run_name=demo_run_name) as run:
-                                for col, value in input_data.items():
-                                    mlflow.log_param(f"input_{col}", value)
-                                mlflow.log_param("predicted_survival", predictions[0])
-                                mlflow.log_param("demo_name", "Titanic_Survival_Demo")
-                                mlflow.log_param("demo_run_id", run.info.run_id)
-
-                                st.write("Thông tin Đã Log:")
-                                log_info = {
-                                    "Tên Run": demo_run_name,
-                                    "ID Run": run.info.run_id,
-                                    "Dữ liệu Nhập": input_data,
-                                    "Dự đoán Sinh tồn": predictions[0],
-                                    "Tên Demo": "Titanic_Survival_Demo"
-                                }
-                                st.write(log_info)
-
-                                run_id = run.info.run_id
-                                mlflow_uri = st.session_state['mlflow_url']
-                                st.success(f"Dự đoán đã được log thành công!\n- Experiment: '{experiment_name}'\n- Tên Run: '{demo_run_name}'\n- ID Run: {run_id}")
-                                st.markdown(f"Xem chi tiết tại: [DagsHub MLflow Tracking]({mlflow_uri})")
-
-                                st.write("Bạn muốn làm gì tiếp theo?")
-                                col1, col2 = st.columns(2)
-                                with col1:
-                                    if st.button("Xem run này trong 'Xem Kết quả Đã Log'"):
-                                        st.session_state['selected_run_id'] = run_id
-                                        st.session_state['active_tab'] = 1
-                                        st.info("Vui lòng chuyển sang tab 'Xem Kết quả Đã Log'.")
-                                with col2:
-                                    if st.button("Xóa run này trong 'Xóa Log'"):
-                                        st.session_state['selected_run_id'] = run_id
-                                        st.session_state['active_tab'] = 2
-                                        st.info("Vui lòng chuyển sang tab 'Xóa Log'.")
-
                 except ValueError as e:
                     st.error(f"Dự đoán thất bại: {str(e)}. Đảm bảo dữ liệu nhập khớp với các cột: {expected_columns}")
 
+        # Log kết quả dự đoán
+        if 'predictions' in st.session_state and st.button("Log Dự đoán vào MLflow"):
+            with st.spinner("Đang log dữ liệu dự đoán vào DagsHub..."):
+                try:
+                    demo_experiment_id = client.get_experiment_by_name(demo_experiment_name).experiment_id
+                    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                    demo_run_name = f"{predict_name}_{timestamp}"
+
+                    st.info("Bắt đầu một run mới trong MLflow...")
+                    with mlflow.start_run(run_name=demo_run_name, experiment_id=demo_experiment_id) as run:
+                        st.info("Đang log các tham số đầu vào...")
+                        for col, value in st.session_state['input_data'].items():
+                            mlflow.log_param(f"input_{col}", value)
+
+                        st.info("Đang log kết quả dự đoán và độ tin cậy...")
+                        mlflow.log_param("predicted_survival", int(st.session_state['predictions'][0]))
+                        mlflow.log_param("predict_name", predict_name)
+                        mlflow.log_param("confidence", float(st.session_state['confidence']))
+                        mlflow.log_param("demo_name", "Titanic_Survival_Demo")
+                        mlflow.log_param("demo_run_id", run.info.run_id)
+                        mlflow.log_param("model_run_id", selected_run_id)
+
+                        st.info("Hoàn tất log các tham số. Đang hiển thị thông tin...")
+                        st.write("Thông tin Đã Log:")
+                        log_info = {
+                            "Tên Run": demo_run_name,
+                            "ID Run": run.info.run_id,
+                            "Tên Dự đoán": predict_name,
+                            "Dữ liệu Nhập": st.session_state['input_data'],
+                            "Dự đoán Sinh tồn": int(st.session_state['predictions'][0]),
+                            "Độ Tin Cậy": float(st.session_state['confidence']),
+                            "Tên Demo": "Titanic_Survival_Demo",
+                            "Mô hình Nguồn": selected_run_id
+                        }
+                        st.write(log_info)
+
+                        st.session_state['last_run_id'] = run.info.run_id  # Lưu run_id để dùng sau
+                        mlflow_uri = DAGSHUB_REPO
+                        st.success(f"Dự đoán đã được log thành công!\n- Experiment: '{demo_experiment_name}'\n- Tên Run: '{demo_run_name}'\n- ID Run: {run.info.run_id}")
+                        st.markdown(f"Xem chi tiết tại: [DagsHub MLflow Tracking]({mlflow_uri})")
+                except mlflow.exceptions.MlflowException as e:
+                    st.error(f"Lỗi khi log vào MLflow: {str(e)}. Vui lòng kiểm tra kết nối DagsHub hoặc quyền truy cập.")
+                except AttributeError as e:
+                    st.error(f"Lỗi: Experiment '{demo_experiment_name}' không tồn tại hoặc không thể truy cập. Vui lòng kiểm tra trên DagsHub UI: {str(e)}")
+
+        # Phần "Bạn muốn làm gì tiếp theo?" được tách ra ngoài
+        if 'last_run_id' in st.session_state:
+            st.write("Bạn muốn làm gì tiếp theo?")
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("Xem run này trong 'Xem Kết quả Đã Log'"):
+                    st.session_state['selected_run_id'] = st.session_state['last_run_id']
+                    st.session_state['active_tab'] = 1
+                    st.info("Vui lòng chuyển sang tab 'Xem Kết quả Đã Log'.")
+            with col2:
+                if st.button("Xóa run này trong 'Xóa Log'"):
+                    st.session_state['selected_run_id'] = st.session_state['last_run_id']
+                    st.session_state['active_tab'] = 2
+                    st.info("Vui lòng chuyển sang tab 'Xóa Log'.")
+
     with tab2:
         st.subheader("Xem Kết quả Đã Log")
-        with st.spinner("Đang tải danh sách runs từ DagsHub..."):
-            runs = mlflow.search_runs()
+        with st.spinner("Đang tải danh sách các experiment từ DagsHub..."):
+            experiments = get_mlflow_experiments()
+        if not experiments:
+            st.error("Không tìm thấy experiment nào trong DagsHub MLflow. Vui lòng kiểm tra kết nối.")
+            return
+
+        experiment_options = list(experiments.keys())
+        selected_experiment = st.selectbox(
+            "Chọn Experiment để xem runs",
+            options=experiment_options,
+            help="Chọn một experiment để xem các run đã log."
+        )
+
+        with st.spinner(f"Đang tải danh sách runs từ Experiment '{selected_experiment}'..."):
+            runs = mlflow.search_runs(experiment_ids=[experiments[selected_experiment]])
         if runs.empty:
-            st.write("Chưa có run dự đoán nào được log.")
+            st.write(f"Chưa có run dự đoán nào được log trong experiment '{selected_experiment}'.")
         else:
-            st.write("Danh sách các run đã log:")
+            st.write(f"Danh sách các run đã log trong Experiment '{selected_experiment}':")
             display_runs = runs[['run_id', 'tags.mlflow.runName', 'start_time', 'experiment_id']].rename(
                 columns={'tags.mlflow.runName': 'Tên Run', 'start_time': 'Thời gian Bắt đầu', 'experiment_id': 'ID Experiment'}
             )
             st.write(display_runs)
 
-            default_run = st.session_state.get('selected_run_id', runs['run_id'].iloc[0])
-            selected_run_id = st.selectbox(
-                "Chọn một run để xem chi tiết",
-                options=runs['run_id'].tolist(),
-                index=runs['run_id'].tolist().index(default_run) if default_run in runs['run_id'].tolist() else 0
-            )
-            if selected_run_id:
-                with st.spinner("Đang tải chi tiết run từ DagsHub..."):
-                    run_details = runs[runs['run_id'] == selected_run_id].iloc[0]
-                    st.write("Chi tiết Run:")
-                    st.write(f"ID Run: {run_details['run_id']}")
-                    st.write(f"Tên Run: {run_details.get('tags.mlflow.runName', 'Không tên')}")
-                    st.write(f"ID Experiment: {run_details['experiment_id']}")
-                    st.write(f"Thời gian Bắt đầu: {run_details['start_time']}")
+            default_run = st.session_state.get('selected_run_id', runs['run_id'].iloc[0] if not runs.empty else None)
+            if default_run and default_run in runs['run_id'].tolist():
+                default_index = runs['run_id'].tolist().index(default_run)
+            else:
+                default_index = 0 if not runs.empty else None
 
-                    st.write("Thông số Đã Log:")
-                    params = mlflow.get_run(selected_run_id).data.params
-                    st.write(params)
+            if not runs.empty:
+                selected_run_id = st.selectbox(
+                    "Chọn một run để xem chi tiết",
+                    options=runs['run_id'].tolist(),
+                    index=default_index,
+                    format_func=lambda x: f"ID Run: {x} - {runs[runs['run_id'] == x]['tags.mlflow.runName'].iloc[0] if not runs[runs['run_id'] == x]['tags.mlflow.runName'].empty else 'Không tên'}"
+                )
+                if selected_run_id:
+                    with st.spinner("Đang tải chi tiết run từ DagsHub..."):
+                        run_details = runs[runs['run_id'] == selected_run_id].iloc[0]
+                        st.write("Chi tiết Run:")
+                        st.write(f"ID Run: {run_details['run_id']}")
+                        st.write(f"Tên Run: {run_details.get('tags.mlflow.runName', 'Không tên')}")
+                        st.write(f"ID Experiment: {run_details['experiment_id']}")
+                        st.write(f"Thời gian Bắt đầu: {run_details['start_time']}")
 
-                    mlflow_uri = st.session_state['mlflow_url']
-                    st.markdown(f"Xem run này trong DagsHub UI: [Nhấn vào đây]({mlflow_uri})")
+                        st.write("Thông số Đã Log:")
+                        params = mlflow.get_run(selected_run_id).data.params
+                        st.write(params)
+
+                        mlflow_uri = DAGSHUB_REPO
+                        st.markdown(f"Xem run này trong DagsHub UI: [Nhấn vào đây]({mlflow_uri})")
 
     with tab3:
         st.subheader("Xóa Log Không Cần Thiết")
-        with st.spinner("Đang tải danh sách runs từ DagsHub..."):
-            runs = mlflow.search_runs()
+        with st.spinner("Đang tải danh sách các experiment từ DagsHub..."):
+            experiments = get_mlflow_experiments()
+        if not experiments:
+            st.error("Không tìm thấy experiment nào trong DagsHub MLflow. Vui lòng kiểm tra kết nối.")
+            return
+
+        experiment_options = list(experiments.keys())
+        selected_experiment = st.selectbox(
+            "Chọn Experiment để xóa runs",
+            options=experiment_options,
+            help="Chọn một experiment để xóa các run không cần thiết."
+        )
+
+        with st.spinner(f"Đang tải danh sách runs từ Experiment '{selected_experiment}'..."):
+            runs = mlflow.search_runs(experiment_ids=[experiments[selected_experiment]])
         if runs.empty:
-            st.write("Không có run nào để xóa.")
+            st.write(f"Không có run nào để xóa trong experiment '{selected_experiment}'.")
         else:
-            st.write("Chọn các run để xóa:")
+            st.write(f"Chọn các run để xóa trong Experiment '{selected_experiment}':")
             run_options = [f"ID Run: {run['run_id']} - {run.get('tags.mlflow.runName', 'Không tên')} (Exp: {run['experiment_id']})" 
                           for _, run in runs.iterrows()]
             default_delete = [f"ID Run: {st.session_state['selected_run_id']} - {runs[runs['run_id'] == st.session_state['selected_run_id']]['tags.mlflow.runName'].iloc[0]} (Exp: {runs[runs['run_id'] == st.session_state['selected_run_id']]['experiment_id'].iloc[0]})" 
