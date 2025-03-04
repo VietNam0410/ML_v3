@@ -264,17 +264,25 @@ def train_model():
             st.write(f"Độ chính xác train: {train_score:.4f}")
             st.write(f"Độ chính xác valid: {valid_score:.4f}")
 
-            # Log mô hình
+            # Log mô hình với input_example để tránh cảnh báo
             with mlflow.start_run(run_name=f"{model_choice}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"):
                 mlflow.log_params(model_params)
                 mlflow.log_param("train_source", train_source)
                 mlflow.log_metric("train_accuracy", train_score)
                 mlflow.log_metric("valid_accuracy", valid_score)
-                mlflow.sklearn.log_model(model, "model")
+                
+                # Thêm input_example từ X_train
+                input_example = X_train.iloc[[0]]  # Lấy mẫu đầu tiên từ X_train
+                mlflow.sklearn.log_model(
+                    sk_model=model,
+                    artifact_path="model",
+                    input_example=input_example  # Thêm để tự động suy ra signature
+                )
+                
                 run_id = mlflow.active_run().info.run_id
                 experiment_id = mlflow.get_experiment_by_name(experiment_name).experiment_id
                 run_url = f"{mlflow_uri}/#/experiments/{experiment_id}/runs/{run_id}"
-                st.success(f"Đã huấn luyện và log {model_choice} vào MLflow ✅")
+                st.success(f"Đã huấn luyện và log {model_choice} vào MLflow với signature ✅")
                 st.markdown(f"Xem chi tiết: [{run_url}]({run_url})")
 
             st.session_state['model'] = model
