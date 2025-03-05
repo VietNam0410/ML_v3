@@ -4,10 +4,9 @@ import importlib
 import traceback
 import os
 import logging
-import mlflow
 from typing import Optional
 
-# Đặt mức log của MLflow về WARNING để giảm cảnh báo không cần thiết
+# Đặt mức log của MLflow về WARNING để giảm cảnh báo không cần thiết (nếu cần MLflow)
 logging.getLogger("mlflow").setLevel(logging.WARNING)
 
 # Hàm chạy một file Streamlit ổn định
@@ -36,41 +35,40 @@ def run_stable_script(script_path: str) -> None:
             module.__main__()
         elif hasattr(module, "main"):
             module.main()
+        elif hasattr(module, "introduce_mnist"):  # Kiểm tra hàm cụ thể trong introduce_mnist.py
+            module.introduce_mnist()
         else:
-            st.warning("Không tìm thấy hàm chính trong file. Vui lòng đảm bảo file có hàm `if __name__ == '__main__':`.")
+            st.warning("Không tìm thấy hàm chính trong file. Vui lòng đảm bảo file có hàm `if __name__ == '__main__':` hoặc hàm `introduce_mnist`.")
 
-    except mlflow.exceptions.MlflowException as e:
-        if "Model does not have the \"python_function\" flavor" in str(e):
-            st.error("Lỗi: Mô hình không có flavor 'python_function'. Vui lòng kiểm tra cách log mô hình trong file bài tập.")
-            st.write("**Giải pháp:**")
-            st.write("- Đảm bảo mô hình (như PCA, KMeans, DBSCAN) được log với signature rõ ràng trong MLflow.")
-            st.write("- Sử dụng `mlflow.sklearn.log_model` với `signature` tùy chỉnh để hỗ trợ flavor 'python_function', nếu cần.")
-            st.write("**Traceback:**")
-            st.code(traceback.format_exc(), language="python")
-        else:
-            st.error("Ứng dụng gặp lỗi MLflow, nhưng đã được xử lý để không sập:")
-            st.write(f"**Lỗi chi tiết:** {str(e)}")
-            st.write("**Traceback:**")
-            st.code(traceback.format_exc(), language="python")
     except Exception as e:
         st.error("Ứng dụng gặp lỗi, nhưng đã được xử lý để không sập:")
         st.write(f"**Lỗi chi tiết:** {str(e)}")
-        st.write("**Traceback:**")
-        st.code(traceback.format_exc(), language="python")
-        st.write("Vui lòng kiểm tra file bài tập hoặc báo cáo lỗi để được hỗ trợ.")
+        if "File './exercises/exercise_3/data/X.pkl' không tồn tại" in str(e) or "Không thể tải dữ liệu MNIST" in str(e):
+            st.write("**Giải pháp:**")
+            st.write("- Đảm bảo file `X.pkl` và `y.pkl` tồn tại trong thư mục `exercises/exercise_3/data/`.");
+            st.write("- Kiểm tra đường dẫn thư mục và tạo dữ liệu nếu cần (xem hướng dẫn bên dưới).")
+            st.write("**Hướng dẫn tạo file .pkl:**")
+            st.write("""
+                1. Tạo một script Python (ví dụ: `generate_mnist_pkl.py`) trong thư mục gốc với nội dung sau:
+                ```python
+                import numpy as np
+                from tensorflow.keras.datasets import mnist
+                import pickle
+                import os
 
-    st.write("---")
-    st.markdown("Cảm ơn bạn đã sử dụng ứng dụng ổn định! 🌟 Nếu có thắc mắc, hãy liên hệ với chúng tôi.")
+                def generate_mnist_pkl(output_dir: str = "./exercises/exercise_3/data/"):
+                    if not os.path.exists(output_dir):
+                        os.makedirs(output_dir)
+                    (X_train, y_train), (X_test, y_test) = mnist.load_data()
+                    X = np.concatenate([X_train, X_test], axis=0) / 255.0  # Chuẩn hóa về [0, 1]
+                    y = np.concatenate([y_train, y_test], axis=0).astype(np.int32)
+                    x_path = os.path.join(output_dir, "X.pkl")
+                    y_path = os.path.join(output_dir, "y.pkl")
+                    with open(x_path, 'wb') as f:
+                        pickle.dump(X, f)
+                    with open(y_path, 'wb') as f:
+                        pickle.dump(y, f)
+                    print(f"Dữ liệu MNIST đã được lưu vào: {x_path} và {y_path}")
 
-# Hàm chính
-if __name__ == "__main__":
-    # Đường dẫn đến file bài tập bạn muốn chạy (ví dụ: train_clustering.py)
-    script_path = st.text_input("Nhập đường dẫn đến file Streamlit (ví dụ: exercises/exercise_4/train_clustering.py)", 
-                               value="exercises/exercise_4/train_clustering.py")
-
-    if st.button("Chạy ứng dụng", key="run_button"):
-        run_stable_script(script_path)
-    
-    # Nút làm mới để thử lại nếu có lỗi
-    if st.button("Làm mới ứng dụng", key="refresh_button"):
-        st.experimental_rerun()
+                if __name__ == "__main__":
+                    generate_mnist_pkl()
