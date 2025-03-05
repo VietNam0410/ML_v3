@@ -1,183 +1,166 @@
 import streamlit as st
 import numpy as np
+import pandas as pd
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
-from sklearn.preprocessing import StandardScaler
-import matplotlib.pyplot as plt
-import seaborn as sns
+from tensorflow.keras.datasets import mnist
+import openml
+import plotly.express as px
 import mlflow
-import mlflow.sklearn
 import os
 import dagshub
 import datetime
+from sklearn.preprocessing import StandardScaler
 
-# Hàm khởi tạo MLflow
-def mlflow_input():
-    DAGSHUB_MLFLOW_URI = "https://dagshub.com/VietNam0410/vn0410.mlflow"
-    mlflow.set_tracking_uri(DAGSHUB_MLFLOW_URI)
-    st.session_state['mlflow_url'] = DAGSHUB_MLFLOW_URI
-    os.environ["MLFLOW_TRACKING_USERNAME"] = "VietNam0410"
-    os.environ["MLFLOW_TRACKING_PASSWORD"] = "22fd02345f8ff45482a20960058627630acaf190"  # Thay bằng token cá nhân của bạn
-    DAGSHUB_REPO = "vn0410"
-    return DAGSHUB_REPO
+# Thiết lập MLflow và DagsHub
+DAGSHUB_MLFLOW_URI = "https://dagshub.com/VietNam0410/ML_v3.mlflow"
+mlflow.set_tracking_uri(DAGSHUB_MLFLOW_URI)
+os.environ["MLFLOW_TRACKING_USERNAME"] = "VietNam0410"
+os.environ["MLFLOW_TRACKING_PASSWORD"] = "c9db6bdcca1dfed76d2af2cdb15a9277e6732d6b"
 
-def plot_and_log_reduction(X_reduced, y, method, params, run):
-    """Vẽ biểu đồ scatter và log vào MLflow."""
-    fig, ax = plt.subplots(figsize=(10, 6))
-    sns.scatterplot(x=X_reduced[:, 0], y=X_reduced[:, 1], hue=y, palette="tab10", ax=ax, s=10)
-    ax.set_title(f"{method} Visualization of MNIST (Train Set)")
-    ax.set_xlabel(f"{method} Component 1")
-    ax.set_ylabel(f"{method} Component 2")
-    st.pyplot(fig)
-
-    # Lưu plot vào file tạm để log vào MLflow
-    plot_file = f"{method.lower()}_plot.png"
-    fig.savefig(plot_file)
-    if run:
-        mlflow.log_artifact(plot_file, artifact_path="visualizations")
-    os.remove(plot_file)  # Xóa file tạm sau khi log
-
-    st.info(f"Biểu đồ {method} đã được log vào DagsHub MLflow.")
-
-def train():
-    st.header("Huấn luyện PCA và t-SNE trên MNIST 🧮")
-
-    # Đóng bất kỳ run nào đang hoạt động để tránh xung đột khi bắt đầu
-    if mlflow.active_run():
-        mlflow.end_run()
-        st.info("Đã đóng run MLflow đang hoạt động trước đó.")
-
-    # Gọi hàm mlflow_input để thiết lập MLflow tại DAGSHUB_MLFLOW_URI
-    DAGSHUB_REPO = mlflow_input()
-
-    # Cho người dùng đặt tên Experiment
-    experiment_name = st.text_input("Nhập Tên Experiment cho Giảm Chiều", value="MNIST_DimReduction")
-    with st.spinner("Đang thiết lập Experiment trên DagsHub MLflow..."):
+# Cache dữ liệu MNIST để tối ưu hóa
+@st.cache_data(ttl=86400)  # Làm mới sau 24 giờ
+def load_mnist(max_samples=10000):  # Giảm mặc định xuống 10,000 để tăng tốc
+    with st.spinner("Đang tải dữ liệu MNIST..."):
         try:
-            client = mlflow.tracking.MlflowClient()
-            experiment = client.get_experiment_by_name(experiment_name)
-            if experiment and experiment.lifecycle_stage == "deleted":
-                st.warning(f"Experiment '{experiment_name}' đã bị xóa trước đó. Vui lòng chọn tên khác hoặc khôi phục experiment qua DagsHub UI.")
-                new_experiment_name = st.text_input("Nhập tên Experiment mới", value=f"{experiment_name}_Restored_{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-                if new_experiment_name:
-                    mlflow.set_experiment(new_experiment_name)
-                    experiment_name = new_experiment_name
-                else:
-                    st.error("Vui lòng nhập tên experiment mới để tiếp tục.")
-                    return
-            else:
-                mlflow.set_experiment(experiment_name)
+            dataset = openml.datasets.get_dataset(554)
+            X, y, _, _ = dataset.get_data(target='class')
+            X = X.values.reshape(-1, 28 * 28) / 255.0  # Làm phẳng và chuẩn hóa
+            y = y.astype(np.int32)
         except Exception as e:
-            st.error(f"Lỗi khi thiết lập experiment: {str(e)}")
-            return
+            st.error(f"Không thể tải từ OpenML: {str(e)}. Sử dụng TensorFlow.")
+            (X_train, y_train), (X_test, y_test) = mnist.load_data()
+            X = np.concatenate([X_train, X_test], axis=0) / 255.0
+            y = np.concatenate([y_train, y_test], axis=0)
+            X = X.reshape(-1, 28 * 28)
+        if max_samples < len(X):
+            indices = np.random.choice(len(X), max_samples, replace=False)
+            X, y = X[indices], y[indices]
+        return X, y
 
-    # Kiểm tra dữ liệu từ preprocess.py (chỉ chia dữ liệu, không giảm chiều)
-    if 'mnist_data' not in st.session_state or st.session_state['mnist_data'] is None:
-        st.error("Dữ liệu MNIST đã xử lý không tìm thấy. Vui lòng hoàn tất tiền xử lý trong 'preprocess.py' trước.")
-        return
+# Cache scaler để tái sử dụng
+@st.cache_resource
+def get_scaler():
+    return StandardScaler()
 
-    mnist_data = st.session_state['mnist_data']
-    X_train = mnist_data['X_train']
-    y_train = mnist_data['y_train']
-    X_valid = mnist_data['X_valid']
-    y_valid = mnist_data['y_valid']
-    X_test = mnist_data['X_test']
-    y_test = mnist_data['y_test']
+# Hàm huấn luyện và giảm chiều (tối ưu hóa tốc độ)
+def train_dimensionality_reduction(X, y, method, n_components):
+    scaler = get_scaler()
+    X_scaled = scaler.fit_transform(X)
+    
+    start_time = datetime.datetime.now()
+    if method == "PCA":
+        model = PCA(n_components=n_components)
+    elif method == "t-SNE":
+        model = TSNE(n_components=n_components, perplexity=15, n_iter=500, random_state=42, n_jobs=-1)  # Tăng tốc t-SNE
+    
+    with st.spinner(f"Đang giảm chiều bằng {method}..."):
+        X_reduced = model.fit_transform(X_scaled)
+    
+    end_time = datetime.datetime.now()
+    duration = (end_time - start_time).total_seconds()
+    
+    return X_reduced, model, duration
 
-    st.write(f"Train samples: {len(X_train)}, Validation samples: {len(X_valid)}, Test samples: {len(X_test)}")
+# Hàm trực quan hóa kết quả (tương tác 2D/3D với Plotly, bỏ độ tin cậy)
+def visualize_reduction(X_reduced, y, method, n_components):
+    if n_components == 2:
+        fig = px.scatter(
+            X_reduced, x=0, y=1, color=y, labels={'color': 'Nhãn (0-9)'},
+            title=f"Trực quan hóa {method} (2D)", color_continuous_scale='Viridis'
+        )
+    else:  # n_components == 3
+        fig = px.scatter_3d(
+            X_reduced, x=0, y=1, z=2, color=y, labels={'color': 'Nhãn (0-9)'},
+            title=f"Trực quan hóa {method} (3D)", color_continuous_scale='Viridis'
+        )
+    
+    st.plotly_chart(fig, use_container_width=True)
 
-    # Chuẩn hóa dữ liệu
-    with st.spinner("Đang chuẩn hóa dữ liệu train..."):
-        scaler = StandardScaler()
-        X_train_scaled = scaler.fit_transform(X_train)
-        X_valid_scaled = scaler.transform(X_valid)
-        X_test_scaled = scaler.transform(X_test)
+# Hàm log kết quả vào MLflow (chỉ giữ các thông tin cần thiết)
+def log_results(method, n_components, duration, X, y, X_reduced, model):
+    experiment_name = "MNIST_Dimensionality_Reduction"
+    mlflow.set_experiment(experiment_name)
+    
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    run_name = f"{method}_n={n_components}_{timestamp.replace(' ', '_').replace(':', '-')}"
+    
+    with mlflow.start_run(run_name=run_name) as run:
+        mlflow.log_param("method", method)
+        mlflow.log_param("n_components", n_components)
+        mlflow.log_param("max_samples", len(X))
+        mlflow.log_param("timestamp", timestamp)
+        mlflow.log_metric("duration_seconds", duration)
+        
+        if method == "PCA":
+            mlflow.log_metric("explained_variance_ratio", np.sum(model.explained_variance_ratio_))
+        
+        # Chỉ log model, không log scaler để tránh lỗi
+        mlflow.sklearn.log_model(model, "model", input_example=X[:1])
+        
+        run_id = run.info.run_id
+        mlflow_uri = DAGSHUB_MLFLOW_URI
+        st.success(f"Đã log kết quả vào MLflow! (Run: {run_name}, ID: {run_id}, Thời gian: {timestamp})")
+        st.markdown(f"Xem chi tiết tại: [DagsHub MLflow]({mlflow_uri})")
+
+# Giao diện Streamlit
+def dimensionality_reduction_app():
+    st.title("🌐 Giảm Chiều Dữ Liệu MNIST với PCA và t-SNE")
+
+    # Tải dữ liệu với thanh trạng thái
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    status_text.write("Bắt đầu tải dữ liệu MNIST...")
+    X, y = load_mnist()
+    progress_bar.progress(100)
+    status_text.write("Dữ liệu MNIST đã sẵn sàng! ✅")
+
+    # Chọn số mẫu (giảm mặc định để tăng tốc)
+    max_samples = st.slider("Chọn số lượng mẫu (0 = toàn bộ, tối đa 70.000)", 0, 70000, 10000, step=1000)
+    if max_samples == 0 or max_samples > len(X):
+        st.warning(f"Số mẫu {max_samples} vượt quá {len(X)}. Sử dụng toàn bộ {len(X)} mẫu.")
+        max_samples = len(X)
+    elif max_samples < len(X):
+        indices = np.random.choice(len(X), max_samples, replace=False)
+        X, y = X[indices], y[indices]
 
     # Chọn phương pháp giảm chiều
-    method = st.selectbox("Chọn phương pháp giảm chiều để huấn luyện", ["PCA", "t-SNE"])
+    method = st.selectbox("Chọn phương pháp giảm chiều", ["PCA", "t-SNE"])
 
-    # Cho phép người dùng đặt tên run ID
-    run_name = st.text_input("Nhập tên Run ID cho giảm chiều (để trống để tự động tạo)", value="", max_chars=20, key="run_name_input")
-    if run_name.strip() == "":
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        run_name = f"MNIST_{method}_{timestamp.replace(' ', '_').replace(':', '-')}"  # Định dạng tên run hợp lệ cho MLflow
+    # Chọn số chiều (chỉ 2 hoặc 3)
+    n_components = st.slider("Chọn số chiều sau khi giảm (2 hoặc 3)", 2, 3, 2, step=1)
 
+    # Huấn luyện và trực quan hóa
+    if st.button("Giảm chiều và trực quan hóa", key="reduce_and_visualize"):
+        with st.spinner("Đang thực hiện giảm chiều..."):
+            X_reduced, model, duration = train_dimensionality_reduction(X, y, method, n_components)
+            visualize_reduction(X_reduced, y, method, n_components)
+        
+        # Log kết quả
+        log_results(method, n_components, duration, X, y, X_reduced, model)
+
+    # Thông tin về phương pháp
+    st.subheader("📚 Thông tin về các phương pháp")
     if method == "PCA":
-        n_components = st.slider("Số thành phần PCA", 2, min(50, X_train_scaled.shape[1]), 2, key="pca_n_components")
-        if st.button("Huấn luyện PCA"):
-            # Đóng bất kỳ run nào đang hoạt động trước khi bắt đầu
-            if mlflow.active_run():
-                mlflow.end_run()
+        st.write("""
+            **PCA (Principal Component Analysis)**:
+            - Là kỹ thuật tuyến tính giảm chiều, giữ lại các thành phần chính (principal components) giải thích phần lớn phương sai trong dữ liệu.
+            - Ưu điểm: Nhanh, dễ hiểu, hiệu quả với dữ liệu tuyến tính.
+            - Nhược điểm: Không hoạt động tốt với dữ liệu phi tuyến.
+        """)
+    else:  # t-SNE
+        st.write("""
+            **t-SNE (t-Distributed Stochastic Neighbor Embedding)**:
+            - Là kỹ thuật phi tuyến giảm chiều, tối ưu hóa để bảo toàn cấu trúc cục bộ (local structure) của dữ liệu.
+            - Ưu điểm: Tốt cho trực quan hóa dữ liệu phức tạp, phi tuyến.
+            - Nhược điểm: Chậm, nhạy với tham số (perplexity, n_iter).
+        """)
 
-            with st.spinner("Đang huấn luyện PCA..."):
-                pca = PCA(n_components=n_components, random_state=42)
-                X_train_pca = pca.fit_transform(X_train_scaled)
-                explained_variance_ratio = pca.explained_variance_ratio_.sum()
-
-                # Hiển thị kết quả
-                st.success(f"PCA hoàn tất! Tỷ lệ phương sai giải thích: {explained_variance_ratio:.4f}")
-                plot_and_log_reduction(X_train_pca, y_train, "PCA", {"n_components": n_components}, None)
-
-                # Lưu mô hình và dữ liệu giảm chiều vào session_state
-                st.session_state['pca_model'] = pca
-                st.session_state['X_train_pca'] = X_train_pca
-                st.session_state['X_valid_pca'] = pca.transform(X_valid_scaled)
-                st.session_state['X_test_pca'] = pca.transform(X_test_scaled)
-
-                # Logging vào MLflow tại DAGSHUB_MLFLOW_URI
-                with mlflow.start_run(run_name=run_name) as run:
-                    mlflow.log_param("timestamp", datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-                    mlflow.log_param("run_id", run.info.run_id)
-                    mlflow.log_param("method", "PCA")
-                    mlflow.log_param("n_components", n_components)
-                    mlflow.log_param("n_samples", X_train_scaled.shape[0])
-                    mlflow.log_metric("explained_variance_ratio", explained_variance_ratio)
-                    mlflow.sklearn.log_model(pca, "pca_model", input_example=X_train_scaled[:1])
-                    plot_and_log_reduction(X_train_pca, y_train, "PCA", {"n_components": n_components}, run)
-
-                    run_id = run.info.run_id
-                    mlflow_uri = st.session_state['mlflow_url']
-                    st.success(f"PCA đã được huấn luyện và log vào DagsHub MLflow thành công! ✅ (Tên Run: {run_name}, Run ID: {run_id}, Thời gian: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})")
-                    st.markdown(f"Xem chi tiết tại: [DagsHub MLflow Tracking]({mlflow_uri})")
-
-    elif method == "t-SNE":
-        perplexity = st.slider("Perplexity", 5, 50, 30, key="tsne_perplexity")
-        n_iter = st.slider("Số lần lặp", 250, 1000, 500, key="tsne_n_iter")
-        if st.button("Huấn luyện t-SNE"):
-            # Đóng bất kỳ run nào đang hoạt động trước khi bắt đầu
-            if mlflow.active_run():
-                mlflow.end_run()
-
-            with st.spinner("Đang huấn luyện t-SNE (có thể lâu với dữ liệu lớn)..."):
-                tsne = TSNE(n_components=2, perplexity=perplexity, n_iter=n_iter, random_state=42)
-                X_train_tsne = tsne.fit_transform(X_train_scaled)
-
-                # Hiển thị kết quả
-                st.success("t-SNE hoàn tất!")
-                plot_and_log_reduction(X_train_tsne, y_train, "t-SNE", {"perplexity": perplexity, "n_iter": n_iter}, None)
-
-                # Lưu mô hình và dữ liệu giảm chiều vào session_state
-                st.session_state['tsne_model'] = tsne
-                st.session_state['X_train_tsne'] = X_train_tsne
-                # t-SNE không có transform, dùng trên valid/test cần tính lại
-                st.session_state['X_valid_tsne'] = tsne.fit_transform(X_valid_scaled)
-                st.session_state['X_test_tsne'] = tsne.fit_transform(X_test_scaled)
-
-                # Logging vào MLflow tại DAGSHUB_MLFLOW_URI
-                with mlflow.start_run(run_name=run_name) as run:
-                    mlflow.log_param("timestamp", datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-                    mlflow.log_param("run_id", run.info.run_id)
-                    mlflow.log_param("method", "t-SNE")
-                    mlflow.log_param("perplexity", perplexity)
-                    mlflow.log_param("n_iter", n_iter)
-                    mlflow.log_param("n_samples", X_train_scaled.shape[0])
-                    mlflow.sklearn.log_model(tsne, "tsne_model", input_example=X_train_scaled[:1])
-                    plot_and_log_reduction(X_train_tsne, y_train, "t-SNE", {"perplexity": perplexity, "n_iter": n_iter}, run)
-
-                    run_id = run.info.run_id
-                    mlflow_uri = st.session_state['mlflow_url']
-                    st.success(f"t-SNE đã được huấn luyện và log vào DagsHub MLflow thành công! ✅ (Tên Run: {run_name}, Run ID: {run_id}, Thời gian: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})")
-                    st.markdown(f"Xem chi tiết tại: [DagsHub MLflow Tracking]({mlflow_uri})")
+    # Thêm nút làm mới cache với key duy nhất
+    if st.button("🔄 Làm mới dữ liệu", key=f"refresh_data_{datetime.datetime.now().microsecond}"):
+        st.cache_data.clear()
+        st.rerun()
 
 if __name__ == "__main__":
-    train()
+    dimensionality_reduction_app()
