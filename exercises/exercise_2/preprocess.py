@@ -44,8 +44,13 @@ def preprocess_mnist():
         mlflow.end_run()
         st.info("Đã đóng run MLflow đang hoạt động trước đó.")
 
-    # Gọi hàm mlflow_input để thiết lập MLflow
-    DAGSHUB_REPO = mlflow_input()
+    # Khởi tạo DagsHub/MLflow chỉ một lần
+    if 'dagshub_initialized' not in st.session_state:
+        DAGSHUB_REPO = mlflow_input()
+        st.session_state['dagshub_initialized'] = True
+        st.session_state['mlflow_url'] = DAGSHUB_REPO
+    else:
+        DAGSHUB_REPO = st.session_state['mlflow_url']
 
     # Thiết lập experiment "MNIST_Preprocessing" cố định
     experiment_name = "MNIST_Preprocessing"

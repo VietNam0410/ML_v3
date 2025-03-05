@@ -10,6 +10,10 @@ import os
 import dagshub
 import datetime
 import pickle
+import logging
+
+# Tắt cảnh báo từ dagshub
+logging.getLogger("dagshub.auth.tokens").setLevel(logging.ERROR)
 
 # Hàm khởi tạo MLflow
 def mlflow_input():
@@ -33,14 +37,13 @@ def scale_data(X_train, X_valid):
 def train_mnist():
     st.header("Huấn luyện Mô hình Nhận diện Chữ số MNIST 🧮")
 
-    # # Đóng run MLflow đang hoạt động nếu có
-    # if mlflow.active_run():
-    #     mlflow.end_run()
-
-    # Khởi tạo MLflow
-    DAGSHUB_REPO = mlflow_input()
-    if 'mlflow_url' not in st.session_state:
+    # Khởi tạo DagsHub/MLflow chỉ một lần
+    if 'dagshub_initialized' not in st.session_state:
+        DAGSHUB_REPO = mlflow_input()
+        st.session_state['dagshub_initialized'] = True
         st.session_state['mlflow_url'] = DAGSHUB_REPO
+    else:
+        DAGSHUB_REPO = st.session_state['mlflow_url']
 
     # Đặt tên Experiment
     experiment_name = st.text_input("Nhập Tên Experiment", value="MNIST_Training", key="exp_name")
@@ -90,13 +93,15 @@ def train_mnist():
     # Chọn mô hình
     model_choice = st.selectbox("Chọn mô hình", ["SVM", "Decision Tree"], key="model_choice")
 
-    # Tham số tối giản
+    # Tham số tối ưu hơn
     if model_choice == "SVM":
         kernel = st.selectbox("Kernel SVM", ["linear", "rbf", "poly"], index=1, key="svm_kernel")
-        model_params = {"kernel": kernel}
+        C = st.slider("Tham số C (Regularization)", 0.1, 10.0, 1.0, step=0.1, key="svm_C")
+        model_params = {"kernel": kernel, "C": C}
     else:
-        max_depth = st.slider("Độ sâu tối đa", 3, 15, 10, step=1, key="dt_depth")
-        model_params = {"max_depth": max_depth}
+        max_depth = st.slider("Độ sâu tối đa", 3, 20, 10, step=1, key="dt_depth")
+        min_samples_split = st.slider("Số mẫu tối thiểu để split", 2, 10, 2, step=1, key="dt_min_samples")
+        model_params = {"max_depth": max_depth, "min_samples_split": min_samples_split}
 
     # Tên run
     run_name = st.text_input("Tên Run ID (để trống để tự động tạo)", value="", max_chars=50, key="run_name")
@@ -109,11 +114,11 @@ def train_mnist():
 
     if st.button("Huấn luyện", key="train_button"):
         with st.spinner("Đang huấn luyện..."):
-            # Khởi tạo mô hình tối ưu
+            # Khởi tạo mô hình với tham số tối ưu
             if model_choice == "SVM":
-                model = SVC(kernel=model_params["kernel"], random_state=42, probability=True, max_iter=1000)
+                model = SVC(kernel=model_params["kernel"], C=model_params["C"], random_state=42, probability=True, max_iter=1000)
             else:
-                model = DecisionTreeClassifier(max_depth=model_params["max_depth"], random_state=42)
+                model = DecisionTreeClassifier(max_depth=model_params["max_depth"], min_samples_split=model_params["min_samples_split"], random_state=42)
 
             # Huấn luyện
             model.fit(X_train_scaled, y_train)
@@ -129,14 +134,12 @@ def train_mnist():
                 mlflow.log_metric("train_accuracy", train_acc)
                 mlflow.log_metric("valid_accuracy", valid_acc)
 
-                # Log mô hình dự đoán
+                # Log mô hình và scaler với input_example để tránh cảnh báo MLflow
                 mlflow.sklearn.log_model(
                     sk_model=model,
                     artifact_path="model",
                     input_example=X_train_scaled[:1]
                 )
-
-                # Log scaler dưới dạng artifact
                 scaler_file = "scaler.pkl"
                 with open(scaler_file, "wb") as f:
                     pickle.dump(scaler, f)
