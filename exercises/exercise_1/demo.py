@@ -6,7 +6,7 @@ from common.utils import load_data
 import os
 import dagshub
 import datetime
-from sklearn.ensemble import RandomForestClassifier  # Thêm để kiểm tra nếu cần
+from sklearn.ensemble import RandomForestClassifier
 
 # Hàm khởi tạo MLflow
 def mlflow_input():
@@ -103,7 +103,7 @@ def show_demo():
     tab1, tab2, tab3 = st.tabs(["Dự đoán", "Xem Kết quả Đã Log", "Xóa Log"])
 
     with tab1:
-        st.subheader("Bước 1: Tùy chỉnh Dữ liệu Nhập cho Dự đoán")
+        st.subheader("Bước 1: Chọn Mô hình Đã Huấn luyện")
         processed_file = "exercises/exercise_1/data/processed/titanic_processed.csv"
         try:
             with st.spinner("Đang tải dữ liệu đã xử lý..."):
@@ -113,15 +113,33 @@ def show_demo():
             st.error("Dữ liệu đã xử lý không tìm thấy. Vui lòng tiền xử lý dữ liệu trước.")
             return
 
-        st.write(f"Chọn mô hình đã huấn luyện từ Experiment '{training_experiment_name}':")
+        st.write(f"Chọn mô hình từ Experiment '{training_experiment_name}':")
         with st.spinner("Đang tải danh sách runs từ DagsHub..."):
-            runs = mlflow.search_runs(experiment_ids=[client.get_experiment_by_name(training_experiment_name).experiment_id])
+            client = mlflow.tracking.MlflowClient()
+            experiment_id = client.get_experiment_by_name(training_experiment_name).experiment_id
+            runs = mlflow.search_runs(experiment_ids=[experiment_id])
+
         if runs.empty:
-            st.error(f"Không tìm thấy mô hình nào trong experiment '{training_experiment_name}'. Vui lòng huấn luyện mô hình trong 'train.py' trước.")
+            st.error(f"Không tìm thấy mô hình nào trong experiment '{training_experiment_name}'. Vui lòng huấn luyện mô hình trước.")
             return
 
-        run_options = [f"ID Run: {run['run_id']} - {run.get('tags.mlflow.runName', 'Không tên')}" for _, run in runs.iterrows()]
-        selected_run = st.selectbox("Chọn run chứa mô hình", options=run_options)
+        # Lọc các run chứa mô hình
+        model_runs = []
+        for _, run in runs.iterrows():
+            run_id = run['run_id']
+            try:
+                artifacts = client.list_artifacts(run_id)
+                if any(artifact.path == "model" for artifact in artifacts):
+                    model_runs.append(run)
+            except Exception:
+                continue
+
+        if not model_runs:
+            st.error(f"Không tìm thấy run nào chứa mô hình trong experiment '{training_experiment_name}'.")
+            return
+
+        run_options = [f"ID Run: {run['run_id']} - {run.get('tags.mlflow.runName', 'Không tên')}" for run in model_runs]
+        selected_run = st.selectbox("Chọn run chứa mô hình", options=run_options, key="model_select")
         selected_run_id = selected_run.split("ID Run: ")[1].split(" - ")[0]
 
         if 'model' not in st.session_state or st.session_state.get('selected_run_id') != selected_run_id:
@@ -130,54 +148,77 @@ def show_demo():
                     model = mlflow.sklearn.load_model(f"runs:/{selected_run_id}/model")
                 st.session_state['model'] = model
                 st.session_state['selected_run_id'] = selected_run_id
-                st.write(f"Mô hình đã được tải từ MLflow (Run ID: {selected_run_id})")
+                st.success(f"Mô hình đã được tải từ MLflow (Run ID: {selected_run_id})")
             except Exception as e:
                 st.error(f"Không thể tải mô hình từ Run ID {selected_run_id}: {str(e)}")
                 return
 
+        # Bước 2: Nhập dữ liệu dự đoán
         model = st.session_state['model']
         expected_columns = model.feature_names_in_ if hasattr(model, 'feature_names_in_') else X_full.columns.tolist()
 
-        st.write("Nhập giá trị cho tất cả các cột (dựa trên dữ liệu huấn luyện của mô hình):")
+        st.subheader("Bước 2: Nhập Dữ liệu để Dự đoán")
         input_data = {}
         for col in expected_columns:
             if col in X_full.columns:
-                if col == 'Age':
-                    input_data[col] = st.number_input(
-                        f"Nhập giá trị cho '{col}' (0-150, số nguyên)",
-                        min_value=0,
-                        max_value=150,
-                        value=int(X_full[col].mean()) if not pd.isna(X_full[col].mean()) else 0,
-                        step=1,
-                        key=f"input_{col}"
-                    )
-                elif col == 'Sex':
-                    input_data[col] = st.selectbox(
-                        f"Chọn giá trị cho '{col}' (0=nam, 1=nữ)",
-                        options=[0, 1],
-                        key=f"input_{col}"
-                    )
-                elif col.startswith('Embarked_') or col in ['Pclass', 'SibSp', 'Parch', 'Name', 'PassengerId', 'Survived', 'Ticket', 'Cabin', 'Fare']:
-                    unique_vals = X_full[col].unique().tolist()
-                    input_data[col] = st.selectbox(
-                        f"Chọn giá trị cho '{col}'",
-                        options=unique_vals,
-                        key=f"input_{col}"
-                    )
-                else:
+                if pd.api.types.is_numeric_dtype(X_full[col]):  # Cột số
                     min_val = float(X_full[col].min()) if not pd.isna(X_full[col].min()) else 0
                     max_val = float(X_full[col].max()) if not pd.isna(X_full[col].max()) else 100
-                    input_data[col] = st.number_input(
-                        f"Nhập giá trị cho '{col}' (Khoảng: {min_val} đến {max_val})",
-                        min_value=min_val,
-                        max_value=max_val,
-                        value=float(X_full[col].mean()) if not pd.isna(X_full[col].mean()) else (min_val + max_val) / 2,
-                        key=f"input_{col}"
-                    )
+                    mean_val = float(X_full[col].mean()) if not pd.isna(X_full[col].mean()) else (min_val + max_val) / 2
+                    
+                    if col == 'Age':
+                        input_data[col] = st.number_input(
+                            f"Nhập giá trị cho '{col}' (0-150, số nguyên)",
+                            min_value=0,
+                            max_value=150,
+                            value=int(mean_val),
+                            step=1,
+                            key=f"input_{col}"
+                        )
+                    else:
+                        input_data[col] = st.number_input(
+                            f"Nhập giá trị cho '{col}' ({min_val} đến {max_val})",
+                            min_value=min_val,
+                            max_value=max_val,
+                            value=mean_val,
+                            key=f"input_{col}"
+                        )
+                else:  # Cột không phải số
+                    unique_vals = X_full[col].dropna().unique().tolist()
+                    if col == 'Sex':
+                        input_data[col] = st.selectbox(
+                            f"Chọn giá trị cho '{col}' (0=nam, 1=nữ)",
+                            options=[0, 1],
+                            key=f"input_{col}"
+                        )
+                    elif col in ['Ticket', 'Cabin', 'Embarked']:
+                        st.warning(f"Cột '{col}' chứa chuỗi. Vui lòng đảm bảo dữ liệu khớp với định dạng huấn luyện.")
+                        input_data[col] = st.selectbox(
+                            f"Chọn giá trị cho '{col}' (hoặc mã hóa thủ công)",
+                            options=unique_vals,
+                            key=f"input_{col}"
+                        )
+                    else:
+                        input_data[col] = st.selectbox(
+                            f"Chọn giá trị cho '{col}'",
+                            options=unique_vals,
+                            key=f"input_{col}"
+                        )
             else:
                 input_data[col] = 0
 
         X_selected = pd.DataFrame([input_data])
+
+        # Kiểm tra và mã hóa dữ liệu nếu cần
+        for col in X_selected.columns:
+            if col in ['Sex', 'Ticket', 'Cabin', 'Embarked'] and not pd.api.types.is_numeric_dtype(X_full[col]):
+                if col == 'Sex':
+                    X_selected[col] = X_selected[col].replace({'male': 0, 'female': 1})
+                else:
+                    if X_selected[col].dtype == 'object':
+                        st.error(f"Cột '{col}' chứa chuỗi ({X_selected[col].iloc[0]}). Mô hình yêu cầu dữ liệu số.")
+                        return
+
         st.write("Dữ liệu Nhập của Bạn cho Dự đoán:")
         st.write(X_selected)
 
@@ -194,20 +235,33 @@ def show_demo():
         if st.button("Thực hiện Dự đoán"):
             with st.spinner("Đang thực hiện dự đoán..."):
                 try:
-                    predictions = model.predict(X_selected)
-                    confidence = get_prediction_confidence(model, X_selected)
+                    X_selected_numeric = X_selected.astype(float)
+                    predictions = model.predict(X_selected_numeric)
+                    confidence = get_prediction_confidence(model, X_selected_numeric)
                     st.session_state['predictions'] = predictions
                     st.session_state['confidence'] = confidence
                     st.session_state['input_data'] = input_data
 
-                    result_df = pd.DataFrame({"Dự đoán Sinh tồn": predictions, "Độ Tin Cậy": [confidence]})
-                    st.write("Kết quả Dự đoán:")
+                    prediction_result = predictions[0]
+                    # Hiển thị độ tin cậy của lớp được dự đoán
+                    if prediction_result == 1:
+                        display_confidence = confidence
+                        status_message = st.success(f"Hành khách này sẽ sống với độ tin cậy {display_confidence:.2%}")
+                    else:
+                        display_confidence = 1 - confidence
+                        status_message = st.error(f"Hành khách này sẽ chết với độ tin cậy {display_confidence:.2%}")
+
+                    # Hiển thị bảng kết quả với độ tin cậy của lớp dự đoán
+                    result_df = pd.DataFrame({"Dự đoán Sinh tồn": predictions, "Độ Tin Cậy": [display_confidence]})
+                    st.write("Kết quả Dự đoán (Chi tiết):")
                     st.write(result_df)
 
                     st.write("Dữ liệu Nhập của Bạn (Tóm tắt):")
                     st.write(pd.DataFrame([input_data]))
                 except ValueError as e:
                     st.error(f"Dự đoán thất bại: {str(e)}. Đảm bảo dữ liệu nhập khớp với các cột: {expected_columns}")
+                except Exception as e:
+                    st.error(f"Lỗi không xác định khi dự đoán: {str(e)}")
 
         # Log kết quả dự đoán
         if 'predictions' in st.session_state and st.button("Log Dự đoán vào MLflow"):
@@ -224,57 +278,44 @@ def show_demo():
                             mlflow.log_param(f"input_{col}", value)
 
                         st.info("Đang log kết quả dự đoán và độ tin cậy...")
-                        mlflow.log_param("predicted_survival", int(st.session_state['predictions'][0]))
+                        prediction_result = st.session_state['predictions'][0]
+                        logged_confidence = st.session_state['confidence'] if prediction_result == 1 else 1 - st.session_state['confidence']
+                        mlflow.log_param("predicted_survival", int(prediction_result))
                         mlflow.log_param("predict_name", predict_name)
-                        mlflow.log_param("confidence", float(st.session_state['confidence']))
+                        mlflow.log_param("confidence", float(logged_confidence))
                         mlflow.log_param("demo_name", "Titanic_Survival_Demo")
                         mlflow.log_param("demo_run_id", run.info.run_id)
                         mlflow.log_param("model_run_id", selected_run_id)
 
-                        st.info("Hoàn tất log các tham số. Đang hiển thị thông tin...")
+                        st.info("Hoàn tất log các tham số...")
                         st.write("Thông tin Đã Log:")
                         log_info = {
                             "Tên Run": demo_run_name,
                             "ID Run": run.info.run_id,
                             "Tên Dự đoán": predict_name,
                             "Dữ liệu Nhập": st.session_state['input_data'],
-                            "Dự đoán Sinh tồn": int(st.session_state['predictions'][0]),
-                            "Độ Tin Cậy": float(st.session_state['confidence']),
+                            "Dự đoán Sinh tồn": int(prediction_result),
+                            "Độ Tin Cậy": float(logged_confidence),
                             "Tên Demo": "Titanic_Survival_Demo",
                             "Mô hình Nguồn": selected_run_id
                         }
                         st.write(log_info)
 
-                        st.session_state['last_run_id'] = run.info.run_id  # Lưu run_id để dùng sau
+                        st.session_state['last_run_id'] = run.info.run_id
                         mlflow_uri = DAGSHUB_REPO
                         st.success(f"Dự đoán đã được log thành công!\n- Experiment: '{demo_experiment_name}'\n- Tên Run: '{demo_run_name}'\n- ID Run: {run.info.run_id}")
                         st.markdown(f"Xem chi tiết tại: [DagsHub MLflow Tracking]({mlflow_uri})")
                 except mlflow.exceptions.MlflowException as e:
-                    st.error(f"Lỗi khi log vào MLflow: {str(e)}. Vui lòng kiểm tra kết nối DagsHub hoặc quyền truy cập.")
+                    st.error(f"Lỗi khi log vào MLflow: {str(e)}")
                 except AttributeError as e:
-                    st.error(f"Lỗi: Experiment '{demo_experiment_name}' không tồn tại hoặc không thể truy cập. Vui lòng kiểm tra trên DagsHub UI: {str(e)}")
-
-        # Phần "Bạn muốn làm gì tiếp theo?" được tách ra ngoài
-        if 'last_run_id' in st.session_state:
-            st.write("Bạn muốn làm gì tiếp theo?")
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("Xem run này trong 'Xem Kết quả Đã Log'"):
-                    st.session_state['selected_run_id'] = st.session_state['last_run_id']
-                    st.session_state['active_tab'] = 1
-                    st.info("Vui lòng chuyển sang tab 'Xem Kết quả Đã Log'.")
-            with col2:
-                if st.button("Xóa run này trong 'Xóa Log'"):
-                    st.session_state['selected_run_id'] = st.session_state['last_run_id']
-                    st.session_state['active_tab'] = 2
-                    st.info("Vui lòng chuyển sang tab 'Xóa Log'.")
+                    st.error(f"Lỗi: Experiment '{demo_experiment_name}' không tồn tại hoặc không thể truy cập: {str(e)}")
 
     with tab2:
         st.subheader("Xem Kết quả Đã Log")
         with st.spinner("Đang tải danh sách các experiment từ DagsHub..."):
             experiments = get_mlflow_experiments()
         if not experiments:
-            st.error("Không tìm thấy experiment nào trong DagsHub MLflow. Vui lòng kiểm tra kết nối.")
+            st.error("Không tìm thấy experiment nào trong DagsHub MLflow.")
             return
 
         experiment_options = list(experiments.keys())
@@ -329,7 +370,7 @@ def show_demo():
         with st.spinner("Đang tải danh sách các experiment từ DagsHub..."):
             experiments = get_mlflow_experiments()
         if not experiments:
-            st.error("Không tìm thấy experiment nào trong DagsHub MLflow. Vui lòng kiểm tra kết nối.")
+            st.error("Không tìm thấy experiment nào trong DagsHub MLflow.")
             return
 
         experiment_options = list(experiments.keys())

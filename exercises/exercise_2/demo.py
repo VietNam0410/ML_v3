@@ -13,13 +13,13 @@ from streamlit_drawable_canvas import st_canvas
 
 # Hàm khởi tạo MLflow
 def mlflow_input():
-    DAGSHUB_MLFLOW_URI = "https://dagshub.com/VietNam0410/vn0410.mlflow"
+    DAGSHUB_MLFLOW_URI = "https://dagshub.com/VietNam0410/ML_v3.mlflow"
     mlflow.set_tracking_uri(DAGSHUB_MLFLOW_URI)
-    st.session_state['mlflow_url'] = DAGSHUB_MLFLOW_URI
     os.environ["MLFLOW_TRACKING_USERNAME"] = "VietNam0410"
-    os.environ["MLFLOW_TRACKING_PASSWORD"] = "22fd02345f8ff45482a20960058627630acaf190"  # Thay bằng token cá nhân của bạn
-    DAGSHUB_REPO = "vn0410"
-    return DAGSHUB_REPO
+    os.environ["MLFLOW_TRACKING_PASSWORD"] = "c9db6bdcca1dfed76d2af2cdb15a9277e6732d6b"
+    dagshub.auth.add_app_token(token=os.environ["MLFLOW_TRACKING_PASSWORD"])
+    dagshub.init("vn0410", "VietNam0410", mlflow=True)
+    return DAGSHUB_MLFLOW_URI
 
 # Hàm tải dữ liệu với cache
 @st.cache_data

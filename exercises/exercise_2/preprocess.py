@@ -10,13 +10,13 @@ import datetime
 
 # Hàm khởi tạo MLflow
 def mlflow_input():
-    DAGSHUB_MLFLOW_URI = "https://dagshub.com/VietNam0410/vn0410.mlflow"
+    DAGSHUB_MLFLOW_URI = "https://dagshub.com/VietNam0410/ML_v3.mlflow"
     mlflow.set_tracking_uri(DAGSHUB_MLFLOW_URI)
-    st.session_state['mlflow_url'] = DAGSHUB_MLFLOW_URI
     os.environ["MLFLOW_TRACKING_USERNAME"] = "VietNam0410"
-    os.environ["MLFLOW_TRACKING_PASSWORD"] = "22fd02345f8ff45482a20960058627630acaf190"  # Thay bằng token cá nhân của bạn
-    DAGSHUB_REPO = "vn0410"
-    return DAGSHUB_REPO
+    os.environ["MLFLOW_TRACKING_PASSWORD"] = "c9db6bdcca1dfed76d2af2cdb15a9277e6732d6b"
+    dagshub.auth.add_app_token(token=os.environ["MLFLOW_TRACKING_PASSWORD"])
+    dagshub.init("vn0410", "VietNam0410", mlflow=True)
+    return DAGSHUB_MLFLOW_URI
 
 # Hàm tải dữ liệu MNIST với cache
 @st.cache_data
@@ -47,23 +47,19 @@ def preprocess_mnist():
     # Gọi hàm mlflow_input để thiết lập MLflow
     DAGSHUB_REPO = mlflow_input()
 
-    # Cho người dùng đặt tên Experiment
-    experiment_name = st.text_input("Nhập tên Experiment cho tiền xử lý", value="MNIST_Preprocessing")
+    # Thiết lập experiment "MNIST_Preprocessing" cố định
+    experiment_name = "MNIST_Preprocessing"
     with st.spinner("Đang thiết lập Experiment trên DagsHub..."):
         try:
             client = mlflow.tracking.MlflowClient()
             experiment = client.get_experiment_by_name(experiment_name)
-            if experiment and experiment.lifecycle_stage == "deleted":
-                st.warning(f"Experiment '{experiment_name}' đã bị xóa trước đó. Vui lòng chọn tên khác hoặc khôi phục experiment qua DagsHub UI.")
-                new_experiment_name = st.text_input("Nhập tên Experiment mới", value=f"{experiment_name}_Restored_{datetime.datetime.now().strftime('%Y%m%d')}")
-                if new_experiment_name:
-                    mlflow.set_experiment(new_experiment_name)
-                    experiment_name = new_experiment_name
-                else:
-                    st.error("Vui lòng nhập tên experiment mới để tiếp tục.")
-                    return
-            else:
-                mlflow.set_experiment(experiment_name)
+            if not experiment:
+                client.create_experiment(experiment_name)
+                st.success(f"Đã tạo Experiment mới '{experiment_name}' thành công!")
+            elif experiment and experiment.lifecycle_stage == "deleted":
+                client.restore_experiment(experiment.experiment_id)
+                st.success(f"Đã khôi phục Experiment '{experiment_name}' thành công!")
+            mlflow.set_experiment(experiment_name)  # Đặt experiment cố định
         except Exception as e:
             st.error(f"Lỗi khi thiết lập experiment: {str(e)}")
             return
@@ -141,7 +137,7 @@ def preprocess_mnist():
                          X_test=X_test, y_test=y_test)
                 st.success(f"Dữ liệu đã được lưu vào {processed_file} 💾")
 
-            # Logging vào MLflow/DagsHub
+            # Logging vào MLflow/DagsHub trong experiment "MNIST_Preprocessing"
             with mlflow.start_run(run_name=f"MNIST_Data_Split_{max_samples}_Samples") as run:
                 mlflow.log_param("max_samples", max_samples)
                 mlflow.log_param("train_size", train_size)
@@ -156,8 +152,8 @@ def preprocess_mnist():
                 os.remove(processed_file)
 
                 run_id = run.info.run_id
-                mlflow_uri = st.session_state['mlflow_url']
-                st.success("Dữ liệu đã được chia và log vào MLflow ✅.")
+                mlflow_uri = DAGSHUB_REPO
+                st.success("Dữ liệu đã được chia và log vào MLflow trong 'MNIST_Preprocessing' ✅.")
                 st.markdown(f"Xem chi tiết tại: [DagsHub MLflow Tracking]({mlflow_uri})")
 
             st.session_state['mnist_data'] = {

@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from sklearn.preprocessing import LabelEncoder, MinMaxScaler, StandardScaler
-from common.utils import load_data, save_data
+from common.utils import load_data  # Chỉ giữ load_data, không dùng save_data
 from common.mlflow_helper import log_preprocessing_params
 import mlflow
 import os
@@ -9,6 +9,7 @@ import random
 import string
 import dagshub
 import datetime
+import sklearn
 
 # Hàm khởi tạo MLflow với caching
 @st.cache_resource
@@ -36,11 +37,12 @@ def preprocess_data():
                 st.error(f"Lỗi khi thiết lập MLflow: {str(e)}")
                 return
 
-    # Thiết lập experiment chỉ một lần
+    # Thiết lập experiment "Titanic_Preprocessing" cố định
     experiment_name = "Titanic_Preprocessing"
     if 'experiment_set' not in st.session_state:
         with st.spinner("Đang thiết lập Experiment trên DagsHub..."):
             try:
+                mlflow.set_tracking_uri(st.session_state['mlflow_url'])
                 experiment = mlflow.get_experiment_by_name(experiment_name)
                 if not experiment:
                     mlflow.create_experiment(experiment_name)
@@ -53,7 +55,7 @@ def preprocess_data():
                 st.error(f"Lỗi khi thiết lập experiment: {str(e)}")
                 return
 
-    # Khởi tạo session_state cho dữ liệu và bước tiền xử lý
+    # Khởi tạo session_state
     if 'data' not in st.session_state:
         st.session_state['data'] = None
     if 'preprocessing_steps' not in st.session_state:
@@ -67,7 +69,6 @@ def preprocess_data():
             st.session_state['preprocessing_steps'] = {}
         st.success("File đã được tải lên thành công! ✅")
 
-        # Kiểm tra kiểu dữ liệu
         if 'Name' in st.session_state['data'].columns and st.session_state['data']['Name'].dtype != 'object':
             st.warning("Cột 'Name' không phải kiểu chuỗi (object).")
         if 'PassengerId' in st.session_state['data'].columns and st.session_state['data']['PassengerId'].dtype not in ['int64', 'object']:
@@ -129,7 +130,6 @@ def preprocess_data():
                             return match
                     return None
 
-                # Chỉ tính toán normalize khi cần
                 if f"{col}_normalized" not in st.session_state['preprocessing_steps']:
                     st.session_state['data'][col] = st.session_state['data'][col].apply(normalize_cabin)
                     st.session_state['preprocessing_steps'][f"{col}_normalized"] = True
@@ -311,12 +311,24 @@ def preprocess_data():
         os.makedirs(os.path.dirname(processed_file), exist_ok=True)
         
         with st.spinner("Đang xử lý và log dữ liệu..."):
-            # Lưu file
-            save_data(st.session_state['data'], processed_file)
+            # Lưu file trực tiếp mà không dùng save_data
+            try:
+                st.session_state['data'].to_csv(
+                    processed_file,
+                    index=False,
+                    compression='infer',  # Giữ nén nếu cần
+                    encoding='utf-8'
+                )
+            except Exception as e:
+                st.error(f"Lỗi khi lưu file: {str(e)}")
+                return
             
             # Tạo run name
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            run_name = run_id_input if run_id_input else f"Run_{timestamp[-6:]}"
+            run_name = ''.join(c for c in run_id_input if c.isalnum() or c in ['_', '-']) if run_id_input else f"Preprocess_{timestamp[-6:]}"
+            
+            # Đảm bảo experiment được đặt trước khi log
+            mlflow.set_experiment(experiment_name)
             
             # Bắt đầu MLflow run
             try:
@@ -324,10 +336,12 @@ def preprocess_data():
                     log_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     
                     # Log parameters và metrics
-                    mlflow.log_params(st.session_state['preprocessing_steps'])
+                    log_preprocessing_params(st.session_state['preprocessing_steps'])
                     mlflow.log_artifact(processed_file, artifact_path="processed_data")
                     mlflow.log_param("num_rows", len(st.session_state['data']))
                     mlflow.log_param("num_columns", len(st.session_state['data'].columns))
+                    mlflow.log_param("pandas_version", pd.__version__)
+                    mlflow.log_param("sklearn_version", sklearn.__version__)
                     mlflow.log_metric("missing_values_before", missing_info.sum())
                     mlflow.log_metric("missing_values_after", st.session_state['data'].isnull().sum().sum())
                     mlflow.log_metric("missing_values_handled", missing_info.sum() - st.session_state['data'].isnull().sum().sum())
@@ -337,7 +351,7 @@ def preprocess_data():
                     experiment_id = mlflow.get_experiment_by_name(experiment_name).experiment_id
                     run_url = f"{st.session_state['mlflow_url']}/#/experiments/{experiment_id}/runs/{run_id}"
                     
-                    st.success(f"Đã log dữ liệu thành công lúc {log_time}! 📊")
+                    st.success(f"Đã log dữ liệu thành công lúc {log_time} vào '{experiment_name}'! 📊")
                     st.markdown(f"Xem chi tiết tại: [{run_url}]({run_url})")
                     
             except Exception as e:
