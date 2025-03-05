@@ -94,7 +94,7 @@ def train_clustering():
     total_samples = len(X_full)
 
     st.subheader("Chia tập dữ liệu MNIST 🔀")
-    max_samples = st.slider("Số mẫu tối đa (0 = toàn bộ, tối đa 70.000)", 0, 70000, 70000, step=100)  # Giữ nguyên mặc định 70,000
+    max_samples = st.slider("Số mẫu tối đa (0 = toàn bộ, tối đa 70.000)", 0, 70000, 70000, step=100)
     
     if max_samples == 0 or max_samples > total_samples:
         st.warning(f"Số mẫu {max_samples} vượt quá {total_samples}. Dùng toàn bộ.")
@@ -148,68 +148,80 @@ def train_clustering():
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         run_name = f"MNIST_{model_choice}_{timestamp}"
 
-    if st.button("Huấn luyện và đánh giá"):
+    if st.button("Huấn luyện và đánh giá", key="train_and_evaluate"):
         if mlflow.active_run():
             mlflow.end_run()
 
         with st.spinner(f"Đang huấn luyện {model_choice}..."):
-            model = get_model(model_choice, **model_params)
-            model.fit(X_train_scaled)
+            try:
+                model = get_model(model_choice, **model_params)
+                model.fit(X_train_scaled)
 
-            # Dự đoán nhãn
-            labels_train = model.predict(X_train_scaled) if model_choice == "K-means" else model.fit_predict(X_train_scaled)
-            labels_valid = model.predict(X_valid_scaled) if model_choice == "K-means" else model.fit_predict(X_valid_scaled)
-            labels_test = model.predict(X_test_scaled) if model_choice == "K-means" else model.fit_predict(X_test_scaled)
-            n_clusters_found = len(np.unique(labels_valid)) - (1 if -1 in labels_valid else 0)
+                # Dự đoán nhãn
+                labels_train = model.predict(X_train_scaled) if model_choice == "K-means" else model.fit_predict(X_train_scaled)
+                labels_valid = model.predict(X_valid_scaled) if model_choice == "K-means" else model.fit_predict(X_valid_scaled)
+                labels_test = model.predict(X_test_scaled) if model_choice == "K-means" else model.fit_predict(X_test_scaled)
+                n_clusters_found = len(np.unique(labels_valid)) - (1 if -1 in labels_valid else 0)
 
-            # Tính Silhouette Score
-            silhouette_train = silhouette_score(X_train_scaled, labels_train) if n_clusters_found > 1 else -1
-            silhouette_valid = silhouette_score(X_valid_scaled, labels_valid) if n_clusters_found > 1 else -1
+                # Tính Silhouette Score
+                silhouette_train = silhouette_score(X_train_scaled, labels_train) if n_clusters_found > 1 else -1
+                silhouette_valid = silhouette_score(X_valid_scaled, labels_valid) if n_clusters_found > 1 else -1
 
-            # Hiển thị thông tin
-            st.write(f"**Thuật toán**: {model_choice}")
-            st.write(f"**Tham số**: {model_params}")
-            st.write("**Chỉ số đánh giá**:")
-            st.write(f"- Silhouette Score (Train): {silhouette_train:.4f}")
-            st.write(f"- Silhouette Score (Valid): {silhouette_valid:.4f}")
-            st.write("""
-                **Thông tin về Silhouette Score**:  
-                - Là chỉ số đánh giá chất lượng phân cụm, đo lường mức độ tương đồng của một điểm trong cụm của nó so với các cụm khác.  
-                - Giá trị từ -1 đến 1:  
-                  + Gần 1: Các cụm được phân tách tốt, điểm nằm gần cụm của nó.  
-                  + Gần 0: Các cụm chồng lấp nhau.  
-                  + Gần -1: Điểm có thể bị phân cụm sai.  
-                - Chỉ tính khi số cụm > 1.
-            """)
+                # Hiển thị thông tin
+                st.write(f"**Thuật toán**: {model_choice}")
+                st.write(f"**Tham số**: {model_params}")
+                st.write("**Chỉ số đánh giá**:")
+                st.write(f"- Silhouette Score (Train): {silhouette_train:.4f}")
+                st.write(f"- Silhouette Score (Valid): {silhouette_valid:.4f}")
+                st.write("""
+                    **Thông tin về Silhouette Score**:  
+                    - Là chỉ số đánh giá chất lượng phân cụm, đo lường mức độ tương đồng của một điểm trong cụm của nó so với các cụm khác.  
+                    - Giá trị từ -1 đến 1:  
+                      + Gần 1: Các cụm được phân tách tốt, điểm nằm gần cụm của nó.  
+                      + Gần 0: Các cụm chồng lấp nhau.  
+                      + Gần -1: Điểm có thể bị phân cụm sai.  
+                    - Chỉ tính khi số cụm > 1.
+                """)
 
-            # Logging vào MLflow
-            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            with mlflow.start_run(run_name=run_name) as run:
-                mlflow.log_param("timestamp", timestamp)
-                mlflow.log_param("run_id", run.info.run_id)
-                mlflow.log_params(model_params)
-                mlflow.log_param("model_type", model_choice)
-                mlflow.log_param("max_samples", max_samples)
-                mlflow.log_param("test_size", test_size)
-                mlflow.log_param("train_size", train_size_relative)
-                mlflow.log_param("val_size", val_size_relative)
-                mlflow.log_metric("n_clusters_found", n_clusters_found)
-                mlflow.log_metric("silhouette_train", silhouette_train)
-                mlflow.log_metric("silhouette_valid", silhouette_valid)
-                mlflow.sklearn.log_model(model, "model", input_example=X_train_scaled[:1])
-                mlflow.sklearn.log_model(scaler, "scaler", input_example=X_train[:1])
+                # Logging vào MLflow (bỏ log scaler, thêm xử lý signature)
+                timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                with mlflow.start_run(run_name=run_name) as run:
+                    mlflow.log_param("timestamp", timestamp)
+                    mlflow.log_param("run_id", run.info.run_id)
+                    mlflow.log_params(model_params)
+                    mlflow.log_param("model_type", model_choice)
+                    mlflow.log_param("max_samples", max_samples)
+                    mlflow.log_param("test_size", test_size)
+                    mlflow.log_param("train_size", train_size_relative)
+                    mlflow.log_param("val_size", val_size_relative)
+                    mlflow.log_metric("n_clusters_found", n_clusters_found)
+                    mlflow.log_metric("silhouette_train", silhouette_train)
+                    mlflow.log_metric("silhouette_valid", silhouette_valid)
 
-                run_id = run.info.run_id
-                mlflow_uri = st.session_state['mlflow_url']
-                st.success(f"Huấn luyện {model_choice} hoàn tất! ✅ (Run: {run_name}, ID: {run_id}, Thời gian: {timestamp})")
-                st.markdown(f"Xem chi tiết tại: [DagsHub MLflow]({mlflow_uri})")
+                    # Log mô hình với signature tùy chỉnh (không sử dụng input example để tránh lỗi)
+                    signature = mlflow.models.signature.infer_signature(
+                        X_train_scaled,  # Dữ liệu đầu vào mẫu
+                        model.predict(X_train_scaled) if model_choice == "K-means" else model.fit_predict(X_train_scaled)
+                    )
+                    mlflow.sklearn.log_model(
+                        model,
+                        "model",
+                        signature=signature  # Cung cấp signature rõ ràng
+                    )
 
-            # Lưu vào session_state
-            st.session_state['clustering_model'] = model
-            st.session_state['clustering_scaler'] = scaler
-            st.session_state['clustering_labels_train'] = labels_train
-            st.session_state['clustering_labels_valid'] = labels_valid
-            st.session_state['clustering_labels_test'] = labels_test
+                    run_id = run.info.run_id
+                    mlflow_uri = st.session_state['mlflow_url']
+                    st.success(f"Huấn luyện {model_choice} hoàn tất! ✅ (Run: {run_name}, ID: {run_id}, Thời gian: {timestamp})")
+                    st.markdown(f"Xem chi tiết tại: [DagsHub MLflow]({mlflow_uri})")
+
+                # Lưu vào session_state (bỏ scaler)
+                st.session_state['clustering_model'] = model
+                st.session_state['clustering_labels_train'] = labels_train
+                st.session_state['clustering_labels_valid'] = labels_valid
+                st.session_state['clustering_labels_test'] = labels_test
+
+            except Exception as e:
+                st.error(f"Lỗi khi huấn luyện hoặc log mô hình: {str(e)}")
 
 if __name__ == "__main__":
     train_clustering()
