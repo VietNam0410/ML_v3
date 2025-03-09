@@ -3,14 +3,14 @@ import numpy as np
 import mlflow
 import mlflow.sklearn
 import os
-import dagshub
 import datetime
 from PIL import Image
 from streamlit_drawable_canvas import st_canvas
+from io import BytesIO
 import logging
 
-# Tắt cảnh báo từ dagshub
-logging.getLogger("dagshub.auth.tokens").setLevel(logging.ERROR)
+# Tắt cảnh báo không cần thiết
+logging.getLogger("mlflow").setLevel(logging.ERROR)
 
 # Hàm khởi tạo MLflow
 def mlflow_input():
@@ -18,18 +18,34 @@ def mlflow_input():
     mlflow.set_tracking_uri(DAGSHUB_MLFLOW_URI)
     os.environ["MLFLOW_TRACKING_USERNAME"] = "VietNam0410"
     os.environ["MLFLOW_TRACKING_PASSWORD"] = "c9db6bdcca1dfed76d2af2cdb15a9277e6732d6b"
-    dagshub.auth.add_app_token(token=os.environ["MLFLOW_TRACKING_PASSWORD"])
-    dagshub.init("vn0410", "VietNam0410", mlflow=True)
-    return DAGSHUB_MLFLOW_URI
+    
+    try:
+        client = mlflow.tracking.MlflowClient()
+        experiments = client.search_experiments()
+        if experiments:
+            st.success('Kết nối MLflow với DagsHub thành công! ✅')
+        else:
+            st.warning('Không tìm thấy experiment nào, nhưng kết nối MLflow vẫn hoạt động.')
+        return DAGSHUB_MLFLOW_URI
+    except mlflow.exceptions.MlflowException as e:
+        st.error(f'Lỗi xác thực MLflow: {str(e)}. Vui lòng kiểm tra token tại https://dagshub.com/user/settings/tokens.')
+        return None
 
 # Hàm lấy danh sách các run từ MLflow
 def get_mlflow_runs(experiment_name: str = "MNIST_Training"):
     """Lấy danh sách các run từ MLflow, lọc các run có mô hình và scaler."""
     try:
         client = mlflow.tracking.MlflowClient()
-        experiment_id = client.get_experiment_by_name(experiment_name).experiment_id
+        experiment = client.get_experiment_by_name(experiment_name)
+        if not experiment:
+            st.error(f"Không tìm thấy experiment '{experiment_name}' trong MLflow.")
+            return []
+        experiment_id = experiment.experiment_id
         runs = client.search_runs([experiment_id], order_by=["metrics.valid_accuracy DESC"])
-        runs_with_model = [run for run in runs if client.list_artifacts(run.info.run_id, "model") and client.list_artifacts(run.info.run_id, "scaler")]
+        runs_with_model = [
+            run for run in runs 
+            if client.list_artifacts(run.info.run_id, "model") and client.list_artifacts(run.info.run_id, "scaler")
+        ]
         return runs_with_model
     except mlflow.exceptions.MlflowException as e:
         st.error(f"Không thể lấy danh sách các run từ MLflow: {str(e)}")
@@ -45,15 +61,18 @@ def preprocess_image(image):
     image_array = 1 - image_array  # Đảo ngược để khớp dữ liệu huấn luyện (đen = 1, trắng = 0)
     return image_array.reshape(1, 28 * 28)
 
-# Hàm chính với các sửa đổi
+# Hàm chính
 def show_mnist_demo():
     st.title("Dự đoán Chữ số MNIST 🎨")
 
     # Khởi tạo MLflow
     if 'dagshub_initialized' not in st.session_state:
-        DAGSHUB_REPO = mlflow_input()
+        DAGSHUB_URI = mlflow_input()
+        if DAGSHUB_URI is None:
+            st.error("Không thể kết nối MLflow. Ứng dụng sẽ dừng.")
+            return
         st.session_state['dagshub_initialized'] = True
-        st.session_state['mlflow_url'] = DAGSHUB_REPO
+        st.session_state['mlflow_url'] = DAGSHUB_URI
 
     # Đóng run MLflow nếu đang mở
     if mlflow.active_run():
@@ -130,7 +149,8 @@ def show_mnist_demo():
             run_name = f"Prediction_{input_method.replace(' ', '_')}_{timestamp}"
             with st.spinner("Đang lưu kết quả vào MLflow..."):
                 client = mlflow.tracking.MlflowClient()
-                experiment_id = client.get_experiment_by_name("MNIST_Demo").experiment_id if client.get_experiment_by_name("MNIST_Demo") else client.create_experiment("MNIST_Demo")
+                experiment = client.get_experiment_by_name("MNIST_Demo")
+                experiment_id = experiment.experiment_id if experiment else client.create_experiment("MNIST_Demo")
                 with mlflow.start_run(run_name=run_name, experiment_id=experiment_id) as run:
                     mlflow.log_param("model_run_id", selected_run_id)
                     mlflow.log_param("predicted_digit", prediction)
@@ -138,7 +158,7 @@ def show_mnist_demo():
                     mlflow.log_param("input_method", input_method)
                     image_buffer = BytesIO()
                     image.save(image_buffer, format="PNG")
-                    mlflow.log_artifact(image_buffer, "input_image.png")
+                    mlflow.log_artifact("input_image.png", artifact_file=image_buffer.getvalue())
                     run_id = run.info.run_id
 
             st.success(f"Kết quả đã được lưu vào MLflow (Run ID: {run_id})")

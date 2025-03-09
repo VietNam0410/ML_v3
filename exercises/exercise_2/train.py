@@ -8,11 +8,9 @@ from sklearn.model_selection import train_test_split
 import mlflow
 import mlflow.sklearn
 import os
-import dagshub
 import datetime
 import pickle
 from tensorflow.keras.datasets import mnist
-import openml
 
 # Hàm khởi tạo MLflow
 def mlflow_input():
@@ -47,58 +45,36 @@ def get_model(model_choice, **params):
     else:
         return DecisionTreeClassifier(**params)
 
-# Hàm tải hoặc tạo dữ liệu từ X.pkl và y.pkl
+# Hàm tải dữ liệu MNIST trực tiếp từ Keras
 @st.cache_data(ttl=86400, show_spinner=False)
-def load_mnist_data(data_dir='exercise_2/data/', max_samples: int = 70000):
-    'Tải dữ liệu từ X.pkl và y.pkl, hoặc tạo nếu chưa tồn tại.'
-    x_path = os.path.join(data_dir, 'X.pkl')
-    y_path = os.path.join(data_dir, 'y.pkl')
-    try:
-        with st.spinner('Đang kiểm tra và tải dữ liệu từ X.pkl và y.pkl...'):
-            if os.path.exists(x_path) and os.path.exists(y_path):
-                with open(x_path, 'rb') as f:
-                    X = pickle.load(f)
-                with open(y_path, 'rb') as f:
-                    y = pickle.load(f)
-                if X.shape[1:] == (28, 28, 1):
-                    X = X.reshape(X.shape[0], -1) / 255.0
-                else:
-                    X = X / 255.0
-            else:
-                st.warning('File X.pkl hoặc y.pkl không tồn tại. Đang tạo dữ liệu từ MNIST...')
-                (X_train, y_train), (X_test, y_test) = mnist.load_data()
-                X = np.concatenate([X_train, X_test], axis=0) / 255.0
-                y = np.concatenate([y_train, y_test], axis=0).astype(np.int32)
-                if not os.path.exists(data_dir):
-                    os.makedirs(data_dir)
-                with open(x_path, 'wb') as f:
-                    pickle.dump(X, f)
-                with open(y_path, 'wb') as f:
-                    pickle.dump(y, f)
-                st.success(f'Đã tạo file X.pkl và y.pkl tại {data_dir}!')
-
-            total_samples = len(X)
+def load_mnist_data(max_samples: int = 70000):
+    """Tải dữ liệu MNIST trực tiếp từ Keras và chuẩn hóa"""
+    with st.spinner('Đang tải dữ liệu MNIST từ Keras...'):
+        try:
+            # Load dữ liệu trực tiếp từ Keras
+            (X_train, y_train), (X_test, y_test) = mnist.load_data()
+            
+            # Gộp train và test thành một tập dữ liệu duy nhất
+            X_full = np.concatenate([X_train, X_test], axis=0)
+            y_full = np.concatenate([y_train, y_test], axis=0).astype(np.int32)
+            
+            # Chuẩn hóa dữ liệu: chuyển pixel từ [0, 255] về [0, 1]
+            X_full = X_full.astype('float32') / 255.0
+            
+            # Giới hạn số mẫu nếu cần
+            total_samples = len(X_full)
             if max_samples == 0 or max_samples > total_samples:
-                max_samples = min(total_samples, 10000)
-            elif max_samples < total_samples:
+                max_samples = total_samples
+            if max_samples < total_samples:
                 indices = np.random.choice(total_samples, max_samples, replace=False)
-                X = X[indices]
-                y = y[indices]
-
-            return X, y
-    except FileNotFoundError:
-        st.error(f'Không tìm thấy file X.pkl hoặc y.pkl tại {data_dir}.')
-        st.write('**Giải pháp:**')
-        st.write('- Vui lòng chạy file preprocess.py để tạo file X.pkl và y.pkl.')
-        st.write('- Chạy script sau trong terminal từ thư mục gốc:')
-        st.write('```python')
-        st.write('from preprocess import preprocess_mnist')
-        st.write('preprocess_mnist()')
-        st.write('```')
-        return None, None
-    except Exception as e:
-        st.error(f'Lỗi khi tải hoặc tạo dữ liệu: {str(e)}. Vui lòng kiểm tra kết nối internet hoặc thư viện tensorflow.')
-        return None, None
+                X_full = X_full[indices]
+                y_full = y_full[indices]
+                
+            st.success('Đã tải dữ liệu MNIST thành công từ Keras! ✅')
+            return X_full, y_full
+        except Exception as e:
+            st.error(f'Lỗi khi tải dữ liệu MNIST: {str(e)}. Vui lòng kiểm tra kết nối internet hoặc thư viện tensorflow.')
+            return None, None
 
 def train_mnist():
     st.header('Huấn luyện Mô hình Nhận diện trên MNIST 🧮')
@@ -172,7 +148,7 @@ def train_mnist():
         st.write(f'Tỷ lệ: Huấn luyện {train_size_relative*100:.1f}%, Validation {val_size_relative*100:.1f}%, Kiểm tra {test_size*100:.1f}%')
         st.write(f'Tập huấn luyện: {len(X_train)} mẫu, Validation: {len(X_valid)} mẫu, Kiểm tra: {len(X_test)} mẫu')
 
-    # Làm phẳng dữ liệu từ (n_samples, 28, 28, 1) thành (n_samples, 28*28) để phù hợp với StandardScaler
+    # Làm phẳng dữ liệu từ (n_samples, 28, 28) thành (n_samples, 28*28) để phù hợp với StandardScaler
     X_train_flat = X_train.reshape(X_train.shape[0], -1)
     X_valid_flat = X_valid.reshape(X_valid.shape[0], -1)
     X_test_flat = X_test.reshape(X_test.shape[0], -1)
@@ -192,21 +168,25 @@ def train_mnist():
         st.write('- **Decision Tree:** Một mô hình dựa trên cây quyết định, dễ hiểu và giải thích, nhưng có thể dễ bị overfitting nếu không tối ưu độ sâu.')
 
         st.subheader('Huấn luyện Mô hình 🎯')
-        model_choice = st.selectbox('Chọn thuật toán', ['SVM', 'Decision Tree'])
+        model_choice = st.selectbox('Chọn thuật toán', ['SVM', 'Decision Tree'], key='model_choice')
 
-        # Tham số tối ưu hơn
-        if 'model_params_set' not in st.session_state:
-            if model_choice == 'SVM':
-                kernel = st.selectbox('Kernel SVM', ['linear', 'rbf', 'poly'], index=1, key='svm_kernel')
-                model_params = {'kernel': kernel, 'random_state': 42, 'probability': True, 'max_iter': 1000}
-            else:
-                max_depth = st.slider('Độ sâu tối đa', 3, 20, 10, step=1, key='dt_depth')
-                min_samples_split = st.slider('Số mẫu tối thiểu để split', 2, 10, 2, step=1, key='dt_min_samples')
-                model_params = {'max_depth': max_depth, 'min_samples_split': min_samples_split, 'random_state': 42}
-            st.session_state['model_params'] = model_params
-            st.session_state['model_params_set'] = True
-        else:
-            model_params = st.session_state['model_params']
+        # Tham số tối ưu cho từng mô hình
+        model_params = {}
+        if model_choice == 'SVM':
+            st.write("### Tham số cho SVM")
+            kernel = st.selectbox('Kernel', ['linear', 'rbf', 'poly'], index=1, key='svm_kernel')
+            model_params = {
+                'kernel': kernel,
+                'probability': True,  # Để tính predict_proba trong demo
+                'random_state': 42
+            }
+        else:  # Decision Tree
+            st.write("### Tham số cho Decision Tree")
+            max_depth = st.slider('Độ sâu tối đa', 3, 20, 10, step=1, key='dt_max_depth')
+            model_params = {
+                'max_depth': max_depth,
+                'random_state': 42
+            }
 
         # Tên run
         run_name = st.text_input('Nhập tên Run ID (để trống để tự tạo)', value='', max_chars=20, key='run_name')
@@ -217,58 +197,63 @@ def train_mnist():
         # Container để hiển thị kết quả
         result_container = st.container()
 
-        if 'training_done' not in st.session_state:
-            if st.button('Huấn luyện', key='train_button'):
-                with st.spinner('Đang huấn luyện mô hình...'):
-                    try:
-                        model = get_model(model_choice, **model_params)
+        if st.button('Huấn luyện', key='train_button'):
+            with st.spinner('Đang huấn luyện mô hình...'):
+                try:
+                    model = get_model(model_choice, **model_params)
 
-                        # Huấn luyện phân loại
-                        model.fit(X_train_scaled, y_train)
-                        train_acc = accuracy_score(y_train, model.predict(X_train_scaled))
-                        valid_acc = accuracy_score(y_valid, model.predict(X_valid_scaled))
+                    # Huấn luyện phân loại
+                    model.fit(X_train_scaled, y_train)
+                    train_acc = accuracy_score(y_train, model.predict(X_train_scaled))
+                    valid_acc = accuracy_score(y_valid, model.predict(X_valid_scaled))
 
-                        # Log vào MLflow
-                        with mlflow.start_run(run_name=run_name, experiment_id=mlflow.get_experiment_by_name('MNIST_Training').experiment_id) as run:
-                            timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-                            mlflow.log_param('timestamp', timestamp)
-                            mlflow.log_param('model_type', model_choice)
-                            mlflow.log_params(model_params)
-                            mlflow.log_metric('train_accuracy', train_acc)
-                            mlflow.log_metric('valid_accuracy', valid_acc)
-                            mlflow.sklearn.log_model(model, 'model', input_example=X_train_scaled[:1])
-                            scaler_file = 'scaler.pkl'
-                            with open(scaler_file, 'wb') as f:
-                                pickle.dump(scaler, f)
-                            mlflow.log_artifact(scaler_file, 'scaler')
-                            os.remove(scaler_file)
+                    # Log vào MLflow
+                    with mlflow.start_run(run_name=run_name, experiment_id=mlflow.get_experiment_by_name('MNIST_Training').experiment_id) as run:
+                        timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+                        mlflow.log_param('timestamp', timestamp)
+                        mlflow.log_param('model_type', model_choice)
+                        mlflow.log_params(model_params)
+                        mlflow.log_metric('train_accuracy', train_acc)
+                        mlflow.log_metric('valid_accuracy', valid_acc)
+                        mlflow.sklearn.log_model(model, 'model', input_example=X_train_scaled[:1])
+                        scaler_file = 'scaler.pkl'
+                        with open(scaler_file, 'wb') as f:
+                            pickle.dump(scaler, f)
+                        mlflow.log_artifact(scaler_file, 'scaler')
+                        os.remove(scaler_file)
 
-                            run_id = run.info.run_id
-                            mlflow_uri = st.session_state['mlflow_url']
+                        run_id = run.info.run_id
+                        mlflow_uri = st.session_state['mlflow_url']
 
-                        # Hiển thị kết quả
-                        with result_container:
-                            st.write('### Kết quả Huấn luyện')
-                            st.write(f'- **Mô hình**: {model_choice}')
-                            st.write(f'- **Tham số**: {model_params}')
-                            st.write(f'- **Độ chính xác**:')
-                            st.write(f'  - Train: {train_acc:.4f}')
-                            st.write(f'  - Valid: {valid_acc:.4f}')
-                            st.write(f'- **Experiment**: MNIST_Training')
-                            st.write(f'- **Run ID**: {run_id}')
-                            st.write(f'- **Thời gian**: {timestamp}')
-                            st.success('Huấn luyện và log vào MLflow hoàn tất!')
+                    # Hiển thị kết quả
+                    with result_container:
+                        st.write('### Kết quả Huấn luyện')
+                        st.write(f'- **Mô hình**: {model_choice}')
+                        st.write(f'- **Tham số**: {model_params}')
+                        st.write(f'- **Độ chính xác**:')
+                        st.write(f'  - Train: {train_acc:.4f}')
+                        st.write(f'  - Valid: {valid_acc:.4f}')
+                        st.write(f'- **Experiment**: MNIST_Training')
+                        st.write(f'- **Run ID**: {run_id}')
+                        st.write(f'- **Thời gian**: {timestamp}')
+                        st.success('Huấn luyện và log vào MLflow hoàn tất!')
 
-                        # Lưu vào session_state
-                        st.session_state['mnist_model'] = model
-                        st.session_state['training_metrics'] = {'train_accuracy': train_acc, 'valid_accuracy': valid_acc}
-                        st.session_state['run_id'] = run_id
-                        st.session_state['training_done'] = True
+                    # Lưu vào session_state
+                    st.session_state['mnist_model'] = model
+                    st.session_state['training_metrics'] = {'train_accuracy': train_acc, 'valid_accuracy': valid_acc}
+                    st.session_state['run_id'] = run_id
+                    st.session_state['training_done'] = True
 
-                        st.markdown(f'Xem chi tiết tại: [DagsHub MLflow]({mlflow_uri})')
+                    st.markdown(f'Xem chi tiết tại: [DagsHub MLflow]({mlflow_uri})')
 
-                    except Exception as e:
-                        st.error(f'Lỗi khi huấn luyện hoặc log mô hình: {str(e)}')
+                except Exception as e:
+                    st.error(f'Lỗi khi huấn luyện hoặc log mô hình: {str(e)}')
+                    
+        # Reset trạng thái khi thay đổi mô hình hoặc tham số
+        if st.button('Reset tham số', key='reset_button'):
+            if 'training_done' in st.session_state:
+                del st.session_state['training_done']
+            st.success('Đã reset trạng thái huấn luyện.')
 
 if __name__ == '__main__':
     train_mnist()

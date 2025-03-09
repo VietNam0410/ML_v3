@@ -2,13 +2,28 @@ import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
 from typing import Tuple, Optional
-from common.common import load_mnist  # Import từ common.py
+from tensorflow.keras.datasets import mnist  # Sử dụng keras để load MNIST trực tiếp
 
 # Tối ưu cache dữ liệu với TTL để làm mới dữ liệu sau 24 giờ
 @st.cache_data(ttl=86400)  # Dữ liệu sẽ được làm mới sau 24 giờ
 def load_mnist_data(max_samples: int = 70000) -> Tuple[np.ndarray, np.ndarray]:
-    'Tải dữ liệu MNIST từ common/common.py để tránh tải lại.'
-    return load_mnist(max_samples=max_samples)
+    """Tải dữ liệu MNIST trực tiếp từ keras và chuẩn hóa"""
+    # Load dữ liệu trực tiếp từ keras
+    (X_train, y_train), (X_test, y_test) = mnist.load_data()
+    
+    # Gộp train và test thành một tập dữ liệu duy nhất
+    X_full = np.concatenate([X_train, X_test], axis=0)
+    y_full = np.concatenate([y_train, y_test], axis=0)
+    
+    # Chuẩn hóa dữ liệu: chuyển pixel từ [0, 255] về [0, 1]
+    X_full = X_full.astype('float32') / 255.0
+    
+    # Giới hạn số mẫu nếu cần
+    if max_samples < len(X_full):
+        X_full = X_full[:max_samples]
+        y_full = y_full[:max_samples]
+    
+    return X_full, y_full
 
 # Hàm trực quan hóa MNIST với tùy chọn tương tác
 def visualize_mnist(X: np.ndarray, y: np.ndarray, num_examples: int = 10) -> None:
@@ -24,7 +39,7 @@ def visualize_mnist(X: np.ndarray, y: np.ndarray, num_examples: int = 10) -> Non
     for label in unique_labels[:num_examples]:
         try:
             idx = np.nonzero(y == label)[0][0]  # Lấy index đầu tiên của label
-            images.append((X[idx].reshape(28, 28), label))
+            images.append((X[idx], label))  # Không cần reshape vì đã là 28x28
         except IndexError:
             st.error(f'Không tìm thấy dữ liệu cho nhãn {label}. Bỏ qua nhãn này.')
             continue
@@ -39,7 +54,7 @@ def visualize_mnist(X: np.ndarray, y: np.ndarray, num_examples: int = 10) -> Non
         with cols[i % len(cols)]:
             st.image(image, caption=f'Chữ số: {label}', use_container_width=True, clamp=True)
 
-# Hàm giới thiệu tập dữ liệu MNIST
+# Hàm tiền xử lý và hiển thị MNIST
 def preprocess_mnist():
     st.header('Tiền xử lý Dữ liệu MNIST Chữ số Viết Tay 🖌️')
 
