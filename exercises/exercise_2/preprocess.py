@@ -1,174 +1,95 @@
 import streamlit as st
 import numpy as np
-import openml
-from sklearn.model_selection import train_test_split
-from tensorflow.keras.datasets import mnist
-import mlflow
-import os
-import dagshub
-import datetime
+import matplotlib.pyplot as plt
+from typing import Tuple, Optional
+from common.common import load_mnist  # Import từ common.py
 
-# Hàm khởi tạo MLflow
-def mlflow_input():
-    DAGSHUB_MLFLOW_URI = "https://dagshub.com/VietNam0410/ML_v3.mlflow"
-    mlflow.set_tracking_uri(DAGSHUB_MLFLOW_URI)
-    os.environ["MLFLOW_TRACKING_USERNAME"] = "VietNam0410"
-    os.environ["MLFLOW_TRACKING_PASSWORD"] = "c9db6bdcca1dfed76d2af2cdb15a9277e6732d6b"
-    dagshub.auth.add_app_token(token=os.environ["MLFLOW_TRACKING_PASSWORD"])
-    dagshub.init("vn0410", "VietNam0410", mlflow=True)
-    return DAGSHUB_MLFLOW_URI
+# Tối ưu cache dữ liệu với TTL để làm mới dữ liệu sau 24 giờ
+@st.cache_data(ttl=86400)  # Dữ liệu sẽ được làm mới sau 24 giờ
+def load_mnist_data(max_samples: int = 70000) -> Tuple[np.ndarray, np.ndarray]:
+    'Tải dữ liệu MNIST từ common/common.py để tránh tải lại.'
+    return load_mnist(max_samples=max_samples)
 
-# Hàm tải dữ liệu MNIST với cache
-@st.cache_data
-def load_mnist_from_openml():
-    """Tải dữ liệu MNIST từ OpenML hoặc TensorFlow và lưu vào bộ nhớ đệm."""
-    with st.spinner("Đang tải dữ liệu MNIST..."):
+# Hàm trực quan hóa MNIST với tùy chọn tương tác
+def visualize_mnist(X: np.ndarray, y: np.ndarray, num_examples: int = 10) -> None:
+    if X is None or y is None:
+        st.error('Không có dữ liệu để trực quan hóa. Vui lòng kiểm tra dữ liệu.')
+        return
+
+    st.subheader('🌟 Ví dụ các chữ số trong MNIST')
+    unique_labels = np.unique(y)
+    images = []
+
+    # Lấy một ảnh cho mỗi nhãn từ 0 đến 9 (hoặc ít hơn nếu num_examples nhỏ)
+    for label in unique_labels[:num_examples]:
         try:
-            dataset = openml.datasets.get_dataset(554)
-            X, y, _, _ = dataset.get_data(target='class')
-            X = X.values.reshape(-1, 28, 28, 1) / 255.0
-            y = y.astype(np.int32)
-            return X, y
-        except Exception as e:
-            st.error(f"Không thể tải dữ liệu từ OpenML. Sử dụng dữ liệu từ TensorFlow: {str(e)}")
-            (X_train, y_train), (X_test, y_test) = mnist.load_data()
-            X = np.concatenate([X_train, X_test], axis=0) / 255.0
-            y = np.concatenate([y_train, y_test], axis=0)
-            return X.reshape(-1, 28, 28, 1), y
+            idx = np.nonzero(y == label)[0][0]  # Lấy index đầu tiên của label
+            images.append((X[idx].reshape(28, 28), label))
+        except IndexError:
+            st.error(f'Không tìm thấy dữ liệu cho nhãn {label}. Bỏ qua nhãn này.')
+            continue
 
+    # Tạo layout trực quan hơn với grid động
+    if not images:
+        st.error('Không có hình ảnh nào để hiển thị. Vui lòng kiểm tra dữ liệu.')
+        return
+
+    cols = st.columns(min(num_examples, 5))  # Hiển thị tối đa 5 cột trên mỗi hàng
+    for i, (image, label) in enumerate(images):
+        with cols[i % len(cols)]:
+            st.image(image, caption=f'Chữ số: {label}', use_container_width=True, clamp=True)
+
+# Hàm giới thiệu tập dữ liệu MNIST
 def preprocess_mnist():
-    st.header("Tiền xử lý Dữ liệu MNIST Chữ số Viết Tay 🖌️")
-
-    # Đóng bất kỳ run nào đang hoạt động để tránh xung đột khi bắt đầu
-    if mlflow.active_run():
-        mlflow.end_run()
-        st.info("Đã đóng run MLflow đang hoạt động trước đó.")
-
-    # Khởi tạo DagsHub/MLflow chỉ một lần
-    if 'dagshub_initialized' not in st.session_state:
-        DAGSHUB_REPO = mlflow_input()
-        st.session_state['dagshub_initialized'] = True
-        st.session_state['mlflow_url'] = DAGSHUB_REPO
-    else:
-        DAGSHUB_REPO = st.session_state['mlflow_url']
-
-    # Thiết lập experiment "MNIST_Preprocessing" cố định
-    experiment_name = "MNIST_Preprocessing"
-    with st.spinner("Đang thiết lập Experiment trên DagsHub..."):
-        try:
-            client = mlflow.tracking.MlflowClient()
-            experiment = client.get_experiment_by_name(experiment_name)
-            if not experiment:
-                client.create_experiment(experiment_name)
-                st.success(f"Đã tạo Experiment mới '{experiment_name}' thành công!")
-            elif experiment and experiment.lifecycle_stage == "deleted":
-                client.restore_experiment(experiment.experiment_id)
-                st.success(f"Đã khôi phục Experiment '{experiment_name}' thành công!")
-            mlflow.set_experiment(experiment_name)  # Đặt experiment cố định
-        except Exception as e:
-            st.error(f"Lỗi khi thiết lập experiment: {str(e)}")
-            return
+    st.header('Tiền xử lý Dữ liệu MNIST Chữ số Viết Tay 🖌️')
 
     # Tải dữ liệu từ bộ nhớ đệm nếu chưa có trong session_state
-    if 'X_full' not in st.session_state or 'y_full' not in st.session_state:
-        st.session_state['X_full'], st.session_state['y_full'] = load_mnist_from_openml()
-        st.success("Dữ liệu MNIST đã được tải và chuẩn hóa thành công! ✅")
+    if 'mnist_data' not in st.session_state or 'X_full' not in st.session_state:
+        st.session_state['X_full'], st.session_state['y_full'] = load_mnist_data(max_samples=70000)
+        st.success('Dữ liệu MNIST đã được tải và chuẩn hóa thành công! ✅')
 
     X_full = st.session_state['X_full']
     y_full = st.session_state['y_full']
     total_samples = len(X_full)
 
-    st.subheader("Thông tin Dữ liệu MNIST Đầy đủ 🔍")
-    st.write(f"Tổng số lượng mẫu: {total_samples}")
+    st.subheader('Thông tin Dữ liệu MNIST Đầy đủ 🔍')
+    st.write(f'Tổng số lượng mẫu: {total_samples}')
 
-    st.subheader("Chia tách Dữ liệu (Tùy chọn) 🔀")
-    max_samples = st.slider("Chọn số lượng mẫu tối đa (0 để dùng toàn bộ)", 0, total_samples, total_samples, step=100)
-    
-    if max_samples == 0:
-        max_samples = total_samples
-    elif max_samples > total_samples:
-        st.error(f"Số lượng mẫu ({max_samples}) vượt quá tổng số mẫu có sẵn ({total_samples}). Đặt lại về {total_samples}.")
-        max_samples = total_samples
+    # Trực quan hóa một số ví dụ từ dữ liệu đầy đủ
+    num_examples = st.slider(
+        'Chọn số lượng ví dụ chữ số để xem (tối đa 10)',
+        min_value=1, max_value=10, value=5, key='num_examples_slider'
+    )
+    visualize_mnist(X_full, y_full, num_examples)
 
-    test_size = st.slider("Chọn tỷ lệ tập kiểm tra (%)", min_value=10, max_value=50, value=20, step=5) / 100
-    remaining_size = 1 - test_size
-    train_size_relative = st.slider(
-        "Chọn tỷ lệ tập huấn luyện (% trên phần còn lại sau khi trừ tập test)",
-        min_value=10, max_value=90, value=70, step=5
-    ) / 100
-    
-    # Tính toán tỷ lệ tập train và validation dựa trên phần còn lại (remaining_size)
-    train_size = remaining_size * train_size_relative
-    val_size = remaining_size * (1 - train_size_relative)
+    # Lưu dữ liệu đầy đủ vào session_state để sử dụng trong train
+    st.session_state['mnist_data'] = {
+        'X_full': X_full,
+        'y_full': y_full
+    }
 
-    # Hiển thị tỷ lệ thực tế dựa trên toàn bộ dữ liệu
-    st.write(f"Tỷ lệ thực tế: Huấn luyện {train_size*100:.1f}%, Validation {val_size*100:.1f}%, Kiểm tra {test_size*100:.1f}%")
-    st.write(f"Kiểm tra tổng tỷ lệ: {train_size*100 + val_size*100 + test_size*100:.1f}% (phải luôn bằng 100%)")
+    with st.expander('Thông tin chi tiết về MNIST'):
+        st.write('### Giới thiệu về MNIST\n' +
+                 'MNIST (Modified National Institute of Standards and Technology) là một trong những tập dữ liệu nổi tiếng nhất trong lĩnh vực nhận dạng chữ số viết tay. Đây là tập dữ liệu tiêu chuẩn để huấn luyện và đánh giá các mô hình machine learning (ML) và deep learning (DL), đặc biệt là nhận dạng hình ảnh.\n\n' +
+                 '- Cấu trúc dữ liệu:\n' +
+                 '  - 60.000 ảnh dùng để huấn luyện (training set)\n' +
+                 '  - 10.000 ảnh dùng để đánh giá (test set)\n' +
+                 '  - Mỗi ảnh là ảnh grayscale (đen trắng, 1 kênh màu) với kích thước 28x28 pixel.\n\n' +
+                 '- Chuẩn hóa dữ liệu:\n' +
+                 '  Giá trị pixel ban đầu nằm trong khoảng [0, 255]. Chúng tôi đã chuẩn hóa dữ liệu, chia cho 255.0 để đưa về khoảng [0, 1] để phù hợp với các mô hình học máy.\n\n' +
+                 '- Ứng dụng:\n' +
+                 '  MNIST thường được sử dụng để thử nghiệm các thuật toán nhận dạng chữ số, từ các mô hình đơn giản như SVM, Decision Tree đến các mô hình phức tạp như Convolutional Neural Networks (CNN).')
 
-    if st.button("Chia dữ liệu"):
-        with st.spinner("Đang chia dữ liệu..."):
-            if max_samples < total_samples:
-                indices = np.random.choice(total_samples, max_samples, replace=False)
-                X_subset = X_full[indices]
-                y_subset = y_full[indices]
-            else:
-                X_subset = X_full
-                y_subset = y_full
+    # Trực quan hóa phân phối nhãn với biểu đồ đẹp hơn
+    st.header('📈 Phân phối các nhãn trong MNIST')
+    fig, ax = plt.subplots(figsize=(8, 4))
+    unique, counts = np.unique(y_full, return_counts=True)
+    ax.bar(unique, counts, tick_label=[str(i) for i in unique], color='skyblue', edgecolor='black')
+    ax.set_title('Phân phối các chữ số trong tập dữ liệu MNIST', fontsize=12, pad=15)
+    ax.set_xlabel('Chữ số', fontsize=10)
+    ax.set_ylabel('Số lượng', fontsize=10)
+    ax.grid(True, linestyle='--', alpha=0.7)
+    st.pyplot(fig, use_container_width=True)
 
-            # Chia tập test trước
-            X_remaining, X_test, y_remaining, y_test = train_test_split(
-                X_subset, y_subset, test_size=test_size, random_state=42
-            )
-            # Chia tập train và validation từ phần còn lại (remaining_size)
-            X_train, X_valid, y_train, y_valid = train_test_split(
-                X_remaining, y_remaining, train_size=train_size_relative, random_state=42
-            )
-
-            st.success(f"Đã chia dữ liệu với số lượng mẫu: {max_samples}. Kích thước: Huấn luyện {train_size*100:.1f}%, Validation {val_size*100:.1f}%, Kiểm tra {test_size*100:.1f}%! ✅")
-            st.write(f"Tập huấn luyện: {len(X_train)} mẫu")
-            st.write(f"Tập validation: {len(X_valid)} mẫu")
-            st.write(f"Tập kiểm tra: {len(X_test)} mẫu")
-
-            # Đảm bảo thư mục tồn tại trước khi lưu file
-            processed_dir = "exercises/exercise_mnist/data/processed"
-            os.makedirs(processed_dir, exist_ok=True)
-            processed_file = os.path.join(processed_dir, "mnist_processed.npz")
-
-            # Lưu dữ liệu cục bộ và log vào MLflow
-            with st.spinner("Đang lưu và log dữ liệu đã chia..."):
-                np.savez(processed_file, 
-                         X_train=X_train, y_train=y_train,
-                         X_valid=X_valid, y_valid=y_valid,
-                         X_test=X_test, y_test=y_test)
-                st.success(f"Dữ liệu đã được lưu vào {processed_file} 💾")
-
-            # Logging vào MLflow/DagsHub trong experiment "MNIST_Preprocessing"
-            with mlflow.start_run(run_name=f"MNIST_Data_Split_{max_samples}_Samples") as run:
-                mlflow.log_param("max_samples", max_samples)
-                mlflow.log_param("train_size", train_size)
-                mlflow.log_param("val_size", val_size)
-                mlflow.log_param("test_size", test_size)
-                mlflow.log_metric("train_samples", len(X_train))
-                mlflow.log_metric("valid_samples", len(X_valid))
-                mlflow.log_metric("test_samples", len(X_test))
-
-                mlflow.log_artifact(processed_file, artifact_path="processed_data")
-                # Xóa file tạm sau khi log (tuỳ chọn)
-                os.remove(processed_file)
-
-                run_id = run.info.run_id
-                mlflow_uri = DAGSHUB_REPO
-                st.success("Dữ liệu đã được chia và log vào MLflow trong 'MNIST_Preprocessing' ✅.")
-                st.markdown(f"Xem chi tiết tại: [DagsHub MLflow Tracking]({mlflow_uri})")
-
-            st.session_state['mnist_data'] = {
-                'X_train': X_train,
-                'y_train': y_train,
-                'X_valid': X_valid,
-                'y_valid': y_valid,
-                'X_test': X_test,
-                'y_test': y_test
-            }
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     preprocess_mnist()

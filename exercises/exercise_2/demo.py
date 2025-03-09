@@ -1,13 +1,10 @@
 import streamlit as st
 import numpy as np
-import pandas as pd
 import mlflow
 import mlflow.sklearn
-from common.utils import load_data
 import os
 import dagshub
 import datetime
-from io import BytesIO
 from PIL import Image
 from streamlit_drawable_canvas import st_canvas
 import logging
@@ -25,35 +22,9 @@ def mlflow_input():
     dagshub.init("vn0410", "VietNam0410", mlflow=True)
     return DAGSHUB_MLFLOW_URI
 
-# Hàm tải dữ liệu với cache
-@st.cache_data
-def load_cached_data(file_path):
-    """Tải dữ liệu từ file CSV hoặc NPZ và lưu vào bộ nhớ đệm."""
-    if file_path.endswith('.npz'):
-        data = np.load(file_path)
-        return data
-    return load_data(file_path)
-
-def delete_mlflow_run(run_id):
-    try:
-        with st.spinner(f"Đang xóa Run {run_id}..."):
-            mlflow.delete_run(run_id)
-        st.success(f"Đã xóa run có ID: {run_id}")
-    except mlflow.exceptions.MlflowException as e:
-        st.error(f"Không thể xóa run {run_id}: {str(e)}")
-
-def get_mlflow_experiments():
-    """Lấy danh sách các experiment từ MLflow."""
-    try:
-        client = mlflow.tracking.MlflowClient()
-        experiments = client.search_experiments()
-        return {exp.name: exp.experiment_id for exp in experiments if exp.lifecycle_stage == "active"}
-    except mlflow.exceptions.MlflowException as e:
-        st.error(f"Không thể lấy danh sách các experiment từ MLflow: {str(e)}")
-        return {}
-
+# Hàm lấy danh sách các run từ MLflow
 def get_mlflow_runs(experiment_name: str = "MNIST_Training"):
-    """Lấy danh sách các run từ MLflow, lọc các run có mô hình và sắp xếp theo độ chính xác hoặc thời gian."""
+    """Lấy danh sách các run từ MLflow, lọc các run có mô hình và scaler."""
     try:
         client = mlflow.tracking.MlflowClient()
         experiment_id = client.get_experiment_by_name(experiment_name).experiment_id
@@ -64,298 +35,114 @@ def get_mlflow_runs(experiment_name: str = "MNIST_Training"):
         st.error(f"Không thể lấy danh sách các run từ MLflow: {str(e)}")
         return []
 
+# Hàm xử lý ảnh đầu vào
 def preprocess_image(image):
-    """Chuyển đổi và tối ưu hóa ảnh thành mảng 28x28 pixel (normalized 0-1)."""
-    # Chuyển ảnh về kích thước 28x28, grayscale
+    """Chuyển đổi ảnh thành mảng 28x28 pixel (normalized 0-1)."""
     image = image.resize((28, 28), Image.Resampling.LANCZOS).convert('L')
-    
-    # Áp dụng threshold để làm mịn (chuyển thành đen trắng rõ ràng hơn)
     image_array = np.array(image)
-    threshold = 127  # Ngưỡng để phân biệt đen và trắng
-    image_array = (image_array < threshold).astype(np.float32)  # 0 cho trắng, 1 cho đen
-    image_array = 1 - image_array  # Đảo ngược (đen = 1, trắng = 0) để khớp với dữ liệu huấn luyện
+    threshold = 127
+    image_array = (image_array < threshold).astype(np.float32)
+    image_array = 1 - image_array  # Đảo ngược để khớp dữ liệu huấn luyện (đen = 1, trắng = 0)
     return image_array.reshape(1, 28 * 28)
 
+# Hàm chính với các sửa đổi
 def show_mnist_demo():
-    st.header("Dự đoán Chữ số MNIST")
+    st.title("Dự đoán Chữ số MNIST 🎨")
 
-    # Đóng bất kỳ run nào đang hoạt động
-    if mlflow.active_run():
-        mlflow.end_run()
-        st.info("Đã đóng run MLflow đang hoạt động trước đó.")
-
-    # Khởi tạo DagsHub/MLflow chỉ một lần
+    # Khởi tạo MLflow
     if 'dagshub_initialized' not in st.session_state:
         DAGSHUB_REPO = mlflow_input()
         st.session_state['dagshub_initialized'] = True
         st.session_state['mlflow_url'] = DAGSHUB_REPO
-    else:
-        DAGSHUB_REPO = st.session_state['mlflow_url']
 
-    tab1, tab2, tab3 = st.tabs(["Dự đoán", "Xem Kết quả Đã Log", "Xóa Log"])
+    # Đóng run MLflow nếu đang mở
+    if mlflow.active_run():
+        mlflow.end_run()
 
-    with tab1:
-        st.subheader("Bước 1: Chọn Mô hình và Dự đoán Chữ số")
-        processed_file = "exercises/exercise_mnist/data/processed/mnist_processed.npz"
-        try:
-            with st.spinner("Đang tải dữ liệu MNIST đã xử lý..."):
-                data = load_cached_data(processed_file)
-                X_train = data['X_train']
-                X_valid = data['X_valid']
-                X_test = data['X_test']
-        except FileNotFoundError:
-            st.error("Dữ liệu MNIST đã xử lý không tìm thấy. Vui lòng hoàn tất tiền xử lý trước.")
-            return
+    # Phần 1: Chọn mô hình từ MLflow
+    st.header("Bước 1: Chọn Mô hình")
+    runs = get_mlflow_runs("MNIST_Training")
+    if not runs:
+        st.error("Không tìm thấy mô hình nào trong 'MNIST_Training'. Vui lòng huấn luyện mô hình trước.")
+        st.info("Chạy file 'train_mnist.py' để tạo mô hình.")
+        return
 
-        # Lấy danh sách run từ experiment "MNIST_Training", ưu tiên run có valid_accuracy cao nhất
-        st.write("Chọn mô hình đã huấn luyện từ experiment 'MNIST_Training':")
-        runs = get_mlflow_runs("MNIST_Training")
-        if not runs:
-            st.error("Không tìm thấy mô hình nào trong MLflow. Vui lòng huấn luyện mô hình trong 'train_mnist.py' trước.")
-            return
+    run_options = [
+        f"{run.data.tags.get('mlflow.runName', 'Không tên')} (Độ chính xác: {run.data.metrics.get('valid_accuracy', 0):.4f}, Thời gian: {datetime.datetime.fromtimestamp(run.info.start_time / 1000).strftime('%Y-%m-%d %H:%M:%S') if run.info.start_time else 'Không rõ'}) - ID: {run.info.run_id}"
+        for run in runs
+    ]
+    selected_run = st.selectbox("Chọn mô hình đã huấn luyện", options=run_options, key="model_select")
+    selected_run_id = selected_run.split(" - ID: ")[-1]
 
-        run_options = [f"ID Run: {run.info.run_id} - {run.data.tags.get('mlflow.runName', 'Không tên')} (Độ chính xác Valid: {run.data.metrics.get('valid_accuracy', 0):.4f}, Thời gian: {run.info.start_time.strftime('%Y-%m-%d %H:%M:%S') if run.info.start_time else 'Không rõ'})" for run in runs]
-        selected_run = st.selectbox("Chọn run chứa mô hình tốt nhất", options=run_options, key="model_select")
-        selected_run_id = selected_run.split("ID Run: ")[1].split(" - ")[0]
+    # Tải mô hình và scaler
+    try:
+        with st.spinner("Đang tải mô hình và scaler..."):
+            model = mlflow.sklearn.load_model(f"runs:/{selected_run_id}/model")
+            scaler = mlflow.sklearn.load_model(f"runs:/{selected_run_id}/scaler")
+        st.success(f"Đã tải mô hình từ Run ID: {selected_run_id}")
+    except Exception as e:
+        st.error(f"Không thể tải mô hình hoặc scaler: {str(e)}. Đảm bảo run chứa 'model' và 'scaler'.")
+        return
 
-        # Tải mô hình và scaler từ MLflow
-        try:
-            with st.spinner("Đang tải mô hình và scaler từ DagsHub MLflow..."):
-                model = mlflow.sklearn.load_model(f"runs:/{selected_run_id}/model")
-                scaler = mlflow.sklearn.load_model(f"runs:/{selected_run_id}/scaler")
-            st.session_state['mnist_model'] = model
-            st.session_state['mnist_scaler'] = scaler
-            st.success(f"Mô hình và scaler đã được tải từ MLflow (Run ID: {selected_run_id})")
-        except Exception as e:
-            st.error(f"Không thể tải mô hình hoặc scaler từ Run ID {selected_run_id}: {str(e)}")
-            return
+    # Phần 2: Nhập dữ liệu
+    st.header("Bước 2: Nhập Chữ số")
+    input_method = st.radio("Chọn cách nhập dữ liệu:", ["Vẽ trên canvas", "Tải lên ảnh"], key="input_method")
 
-        model = st.session_state['mnist_model']
-        scaler = st.session_state['mnist_scaler']
+    input_data = None
+    image = None
+    if input_method == "Vẽ trên canvas":
+        canvas_result = st_canvas(
+            fill_color="white",
+            stroke_width=10,
+            stroke_color="black",
+            background_color="white",
+            height=280,
+            width=280,
+            drawing_mode="freedraw",
+            key="canvas"
+        )
+        if canvas_result.image_data is not None:
+            image = Image.fromarray(canvas_result.image_data)
+            input_data = preprocess_image(image)
+            st.image(image, caption="Hình ảnh bạn vẽ", width=280)
 
-        # Tùy chọn vẽ hoặc upload ảnh
-        st.subheader("Bước 2: Vẽ hoặc Tải lên Hình Chữ số (28x28 pixel, màu đen trên nền trắng)")
-        option = st.radio("Chọn phương thức nhập dữ liệu:", ("Vẽ trên canvas", "Upload ảnh"), key="input_method")
+    else:  # Tải lên ảnh
+        uploaded_file = st.file_uploader("Tải lên ảnh (PNG/JPG, 28x28, đen trên nền trắng)", type=["png", "jpg", "jpeg"])
+        if uploaded_file is not None:
+            image = Image.open(uploaded_file)
+            input_data = preprocess_image(image)
+            st.image(image, caption="Hình ảnh đã tải lên", width=280)
 
-        if option == "Vẽ trên canvas":
-            canvas_result = st_canvas(
-                fill_color="white",
-                stroke_width=5,
-                stroke_color="black",
-                background_color="white",
-                update_streamlit=True,
-                height=280,
-                width=280,
-                drawing_mode="freedraw",
-                key="canvas"
-            )
+    # Phần 3: Dự đoán và lưu kết quả
+    if input_data is not None and st.button("Dự đoán", key="predict_button"):
+        with st.spinner("Đang dự đoán..."):
+            X_input_scaled = scaler.transform(input_data)
+            prediction = model.predict(X_input_scaled)[0]
+            confidence = model.predict_proba(X_input_scaled)[0][prediction] if hasattr(model, "predict_proba") else 0.5
 
-            if canvas_result.image_data is not None:
-                image = Image.fromarray(canvas_result.image_data).convert('L')
-                input_data = preprocess_image(image)
-                st.write("Dữ liệu Hình ảnh từ Canvas (28x28 pixel, normalized):")
-                st.write(pd.DataFrame(input_data))
+            st.header("Bước 3: Kết quả")
+            st.write(f"**Chữ số dự đoán**: {prediction}")
+            st.write(f"**Độ tin cậy**: {confidence:.2%}")
+            st.image(image, caption=f"Dự đoán: {prediction} (Độ tin cậy: {confidence:.2%})", width=280)
 
-                if st.button("Dự đoán từ Canvas", key="predict_canvas"):
-                    with st.spinner("Đang thực hiện dự đoán..."):
-                        try:
-                            X_input_scaled = scaler.transform(input_data)
-                            probabilities = model.predict_proba(X_input_scaled) if hasattr(model, 'predict_proba') else None
-                            predictions = model.predict(X_input_scaled)
-                            predicted_digit = predictions[0]
-                            confidence = probabilities[0][predicted_digit] if probabilities is not None else 0.5
+            # Log vào MLflow
+            timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            run_name = f"Prediction_{input_method.replace(' ', '_')}_{timestamp}"
+            with st.spinner("Đang lưu kết quả vào MLflow..."):
+                client = mlflow.tracking.MlflowClient()
+                experiment_id = client.get_experiment_by_name("MNIST_Demo").experiment_id if client.get_experiment_by_name("MNIST_Demo") else client.create_experiment("MNIST_Demo")
+                with mlflow.start_run(run_name=run_name, experiment_id=experiment_id) as run:
+                    mlflow.log_param("model_run_id", selected_run_id)
+                    mlflow.log_param("predicted_digit", prediction)
+                    mlflow.log_param("confidence", confidence)
+                    mlflow.log_param("input_method", input_method)
+                    image_buffer = BytesIO()
+                    image.save(image_buffer, format="PNG")
+                    mlflow.log_artifact(image_buffer, "input_image.png")
+                    run_id = run.info.run_id
 
-                            st.write("### Kết quả Dự đoán")
-                            st.write(f"Chữ số dự đoán: **{predicted_digit}**")
-                            st.write(f"Độ tin cậy: **{confidence:.2%}**")
-
-                            # Logging dự đoán vào MLflow experiment "MNIST_Demo"
-                            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                            run_name = st.text_input("Nhập tên cho run dự đoán này (để trống để tự động tạo)", value="", max_chars=20, key="canvas_run_name")
-                            if not run_name.strip():
-                                run_name = f"MNIST_Predict_Canvas_{timestamp.replace(' ', '_').replace(':', '-')}"
-                            if st.button("Log Dự đoán từ Canvas vào MLflow", key="log_canvas"):
-                                with st.spinner("Đang log dữ liệu dự đoán vào DagsHub MLflow..."):
-                                    experiment_name = "MNIST_Demo"
-                                    client = mlflow.tracking.MlflowClient()
-                                    experiment_id = client.get_experiment_by_name(experiment_name).experiment_id if client.get_experiment_by_name(experiment_name) else client.create_experiment(experiment_name)
-                                    with mlflow.start_run(run_name=run_name, experiment_id=experiment_id) as run:
-                                        mlflow.log_param("timestamp", timestamp)
-                                        mlflow.log_param("run_id", run.info.run_id)
-                                        mlflow.log_param("model_run_id", selected_run_id)
-                                        mlflow.log_param("predicted_digit", predicted_digit)
-                                        mlflow.log_param("confidence", confidence)
-                                        mlflow.log_param("input_method", "Canvas")
-                                        for i in range(28):
-                                            for j in range(28):
-                                                mlflow.log_param(f"pixel_{i}_{j}", input_data[0, i * 28 + j])
-
-                                        st.write("### Thông tin Đã Log")
-                                        log_info = {
-                                            "Tên Run": run_name,
-                                            "ID Run": run.info.run_id,
-                                            "Thời gian": timestamp,
-                                            "Mô hình Nguồn": selected_run_id,
-                                            "Chữ số Dự đoán": predicted_digit,
-                                            "Độ Tin Cậy": confidence,
-                                            "Phương thức nhập": "Canvas",
-                                            "Dữ liệu Hình ảnh": {f"pixel_{i}_{j}": input_data[0, i * 28 + j] for i in range(28) for j in range(28)}
-                                        }
-                                        st.write(log_info)
-
-                                        run_id = run.info.run_id
-                                        mlflow_uri = st.session_state['mlflow_url']
-                                        st.success(f"Dự đoán đã được log thành công vào experiment 'MNIST_Demo'!\n- Tên Run: '{run_name}'\n- ID Run: {run_id}\n- Thời gian: {timestamp}")
-                                        st.markdown(f"Xem chi tiết tại: [DagsHub MLflow Tracking]({mlflow_uri})")
-
-                        except ValueError as e:
-                            st.error(f"Dự đoán thất bại: {str(e)}. Đảm bảo ảnh hợp lệ (28x28 pixel, màu đen trên nền trắng).")
-
-        elif option == "Upload ảnh":
-            uploaded_file = st.file_uploader("Tải lên ảnh chữ số (PNG/JPG, 28x28 pixel, màu đen trên nền trắng)", type=["png", "jpg", "jpeg"], key="upload")
-            if uploaded_file is not None:
-                image = Image.open(uploaded_file)
-                input_data = preprocess_image(image)
-                st.write("Dữ liệu Hình ảnh từ Upload (28x28 pixel, normalized):")
-                st.write(pd.DataFrame(input_data))
-
-                if st.button("Dự đoán từ Ảnh Upload", key="predict_upload"):
-                    with st.spinner("Đang thực hiện dự đoán..."):
-                        try:
-                            X_input_scaled = scaler.transform(input_data)
-                            probabilities = model.predict_proba(X_input_scaled) if hasattr(model, 'predict_proba') else None
-                            predictions = model.predict(X_input_scaled)
-                            predicted_digit = predictions[0]
-                            confidence = probabilities[0][predicted_digit] if probabilities is not None else 0.5
-
-                            st.write("### Kết quả Dự đoán")
-                            st.write(f"Chữ số dự đoán: **{predicted_digit}**")
-                            st.write(f"Độ tin cậy: **{confidence:.2%}**")
-
-                            # Logging dự đoán vào MLflow experiment "MNIST_Demo"
-                            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                            run_name = st.text_input("Nhập tên cho run dự đoán này (để trống để tự động tạo)", value="", max_chars=20, key="upload_run_name")
-                            if not run_name.strip():
-                                run_name = f"MNIST_Predict_Upload_{timestamp.replace(' ', '_').replace(':', '-')}"
-                            if st.button("Log Dự đoán từ Ảnh Upload vào MLflow", key="log_upload"):
-                                with st.spinner("Đang log dữ liệu dự đoán vào DagsHub MLflow..."):
-                                    experiment_name = "MNIST_Demo"
-                                    client = mlflow.tracking.MlflowClient()
-                                    experiment_id = client.get_experiment_by_name(experiment_name).experiment_id if client.get_experiment_by_name(experiment_name) else client.create_experiment(experiment_name)
-                                    with mlflow.start_run(run_name=run_name, experiment_id=experiment_id) as run:
-                                        mlflow.log_param("timestamp", timestamp)
-                                        mlflow.log_param("run_id", run.info.run_id)
-                                        mlflow.log_param("model_run_id", selected_run_id)
-                                        mlflow.log_param("predicted_digit", predicted_digit)
-                                        mlflow.log_param("confidence", confidence)
-                                        mlflow.log_param("input_method", "Upload")
-                                        for i in range(28):
-                                            for j in range(28):
-                                                mlflow.log_param(f"pixel_{i}_{j}", input_data[0, i * 28 + j])
-
-                                        st.write("### Thông tin Đã Log")
-                                        log_info = {
-                                            "Tên Run": run_name,
-                                            "ID Run": run.info.run_id,
-                                            "Thời gian": timestamp,
-                                            "Mô hình Nguồn": selected_run_id,
-                                            "Chữ số Dự đoán": predicted_digit,
-                                            "Độ Tin Cậy": confidence,
-                                            "Phương thức nhập": "Upload",
-                                            "Dữ liệu Hình ảnh": {f"pixel_{i}_{j}": input_data[0, i * 28 + j] for i in range(28) for j in range(28)}
-                                        }
-                                        st.write(log_info)
-
-                                        run_id = run.info.run_id
-                                        mlflow_uri = st.session_state['mlflow_url']
-                                        st.success(f"Dự đoán đã được log thành công vào experiment 'MNIST_Demo'!\n- Tên Run: '{run_name}'\n- ID Run: {run_id}\n- Thời gian: {timestamp}")
-                                        st.markdown(f"Xem chi tiết tại: [DagsHub MLflow Tracking]({mlflow_uri})")
-
-                        except ValueError as e:
-                            st.error(f"Dự đoán thất bại: {str(e)}. Đảm bảo ảnh hợp lệ (28x28 pixel, màu đen trên nền trắng).")
-
-    with tab2:
-        st.subheader("Xem Kết quả Đã Log từ Experiment 'MNIST_Demo'")
-        with st.spinner("Đang tải danh sách runs từ experiment 'MNIST_Demo' trên DagsHub MLflow..."):
-            experiments = get_mlflow_experiments()
-            if "MNIST_Demo" not in experiments:
-                st.warning("Experiment 'MNIST_Demo' chưa được tạo. Vui lòng thực hiện dự đoán và log để tạo experiment.")
-                return
-
-            experiment_id = experiments["MNIST_Demo"]
-            runs = mlflow.search_runs([experiment_id], order_by=["start_time DESC"])
-        if runs.empty:
-            st.write("Chưa có run dự đoán nào được log trong experiment 'MNIST_Demo'.")
-        else:
-            st.write("Danh sách các run đã log trong Experiment 'MNIST_Demo':")
-            display_runs = runs[['run_id', 'tags.mlflow.runName', 'start_time', 'experiment_id']].rename(
-                columns={'tags.mlflow.runName': 'Tên Run', 'start_time': 'Thời gian Bắt đầu', 'experiment_id': 'ID Experiment'}
-            )
-            display_runs['Thời gian Bắt đầu'] = display_runs['Thời gian Bắt đầu'].apply(lambda x: x.strftime('%Y-%m-%d %H:%M:%S') if x else 'Không rõ')
-            st.write(display_runs)
-
-            default_run = st.session_state.get('selected_run_id', runs['run_id'].iloc[0] if not runs.empty else None)
-            if default_run and default_run in runs['run_id'].tolist():
-                default_index = runs['run_id'].tolist().index(default_run)
-            else:
-                default_index = 0 if not runs.empty else None
-
-            if not runs.empty:
-                selected_run_id = st.selectbox(
-                    "Chọn một run để xem chi tiết",
-                    options=runs['run_id'].tolist(),
-                    index=default_index,
-                    format_func=lambda x: f"ID Run: {x} - {runs[runs['run_id'] == x]['tags.mlflow.runName'].iloc[0] if not runs[runs['run_id'] == x]['tags.mlflow.runName'].empty else 'Không tên'}"
-                )
-                if selected_run_id:
-                    with st.spinner("Đang tải chi tiết run từ DagsHub MLflow..."):
-                        run_details = runs[runs['run_id'] == selected_run_id].iloc[0]
-                        st.write("### Chi tiết Run:")
-                        st.write(f"ID Run: {run_details['run_id']}")
-                        st.write(f"Tên Run: {run_details.get('tags.mlflow.runName', 'Không tên')}")
-                        st.write(f"Thời gian Bắt đầu: {run_details['start_time'].strftime('%Y-%m-%d %H:%M:%S') if run_details['start_time'] else 'Không rõ'}")
-
-                        st.write("### Thông số Đã Log:")
-                        params = mlflow.get_run(selected_run_id).data.params
-                        st.write(params)
-
-                        mlflow_uri = st.session_state['mlflow_url']
-                        st.markdown(f"Xem run này trong DagsHub UI: [Nhấn vào đây]({mlflow_uri})")
-
-    with tab3:
-        st.subheader("Xóa Log Không Cần Thiết từ Experiment 'MNIST_Demo'")
-        with st.spinner("Đang tải danh sách runs từ experiment 'MNIST_Demo' trên DagsHub MLflow..."):
-            experiments = get_mlflow_experiments()
-            if "MNIST_Demo" not in experiments:
-                st.warning("Experiment 'MNIST_Demo' chưa được tạo. Không có run nào để xóa.")
-                return
-
-            experiment_id = experiments["MNIST_Demo"]
-            runs = mlflow.search_runs([experiment_id])
-        if runs.empty:
-            st.write("Không có run nào để xóa trong experiment 'MNIST_Demo'.")
-        else:
-            st.write("Chọn các run để xóa trong Experiment 'MNIST_Demo':")
-            run_options = [f"ID Run: {run['run_id']} - {run.get('tags.mlflow.runName', 'Không tên')} (Thời gian: {run['start_time'].strftime('%Y-%m-%d %H:%M:%S') if run['start_time'] else 'Không rõ'})" 
-                          for _, run in runs.iterrows()]
-            default_delete = [f"ID Run: {st.session_state['selected_run_id']} - {runs[runs['run_id'] == st.session_state['selected_run_id']]['tags.mlflow.runName'].iloc[0]} (Thời gian: {runs[runs['run_id'] == st.session_state['selected_run_id']]['start_time'].strftime('%Y-%m-%d %H:%M:%S') if runs[runs['run_id'] == st.session_state['selected_run_id']]['start_time'].iloc[0] else 'Không rõ'})" 
-                             if 'selected_run_id' in st.session_state and st.session_state['selected_run_id'] in runs['run_id'].tolist() else None]
-            runs_to_delete = st.multiselect(
-                "Chọn các run",
-                options=run_options,
-                default=[d for d in default_delete if d],
-                key="delete_runs"
-            )
-            if st.button("Xóa Các Run Đã Chọn"):
-                for run_str in runs_to_delete:
-                    run_id = run_str.split("ID Run: ")[1].split(" - ")[0]
-                    try:
-                        with st.spinner(f"Đang xóa Run {run_id}..."):
-                            mlflow.delete_run(run_id)
-                        st.success(f"Đã xóa run có ID: {run_id}")
-                    except mlflow.exceptions.MlflowException as e:
-                        st.error(f"Không thể xóa run {run_id}: {str(e)}")
-                st.success("Các run đã chọn đã được xóa. Làm mới trang để cập nhật danh sách.")
+            st.success(f"Kết quả đã được lưu vào MLflow (Run ID: {run_id})")
+            st.markdown(f"Xem chi tiết tại: [{st.session_state['mlflow_url']}]({st.session_state['mlflow_url']})")
 
 if __name__ == "__main__":
     show_mnist_demo()
