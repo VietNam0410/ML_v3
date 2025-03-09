@@ -1,0 +1,148 @@
+import streamlit as st
+import numpy as np
+import mlflow
+import mlflow.sklearn
+import os
+import dagshub
+import datetime
+from PIL import Image
+from streamlit_drawable_canvas import st_canvas
+import logging
+
+# Tắt cảnh báo từ dagshub
+logging.getLogger("dagshub.auth.tokens").setLevel(logging.ERROR)
+
+# Hàm khởi tạo MLflow
+def mlflow_input():
+    DAGSHUB_MLFLOW_URI = "https://dagshub.com/VietNam0410/ML_v3.mlflow"
+    mlflow.set_tracking_uri(DAGSHUB_MLFLOW_URI)
+    os.environ["MLFLOW_TRACKING_USERNAME"] = "VietNam0410"
+    os.environ["MLFLOW_TRACKING_PASSWORD"] = "c9db6bdcca1dfed76d2af2cdb15a9277e6732d6b"
+    dagshub.auth.add_app_token(token=os.environ["MLFLOW_TRACKING_PASSWORD"])
+    dagshub.init("vn0410", "VietNam0410", mlflow=True)
+    return DAGSHUB_MLFLOW_URI
+
+# Hàm lấy danh sách các run từ MLflow
+def get_mlflow_runs(experiment_name: str = "MNIST_Training"):
+    """Lấy danh sách các run từ MLflow, lọc các run có mô hình và scaler."""
+    try:
+        client = mlflow.tracking.MlflowClient()
+        experiment_id = client.get_experiment_by_name(experiment_name).experiment_id
+        runs = client.search_runs([experiment_id], order_by=["metrics.valid_accuracy DESC"])
+        runs_with_model = [run for run in runs if client.list_artifacts(run.info.run_id, "model") and client.list_artifacts(run.info.run_id, "scaler")]
+        return runs_with_model
+    except mlflow.exceptions.MlflowException as e:
+        st.error(f"Không thể lấy danh sách các run từ MLflow: {str(e)}")
+        return []
+
+# Hàm xử lý ảnh đầu vào
+def preprocess_image(image):
+    """Chuyển đổi ảnh thành mảng 28x28 pixel (normalized 0-1)."""
+    image = image.resize((28, 28), Image.Resampling.LANCZOS).convert('L')
+    image_array = np.array(image)
+    threshold = 127
+    image_array = (image_array < threshold).astype(np.float32)
+    image_array = 1 - image_array  # Đảo ngược để khớp dữ liệu huấn luyện (đen = 1, trắng = 0)
+    return image_array.reshape(1, 28 * 28)
+
+# Hàm chính với các sửa đổi
+def show_mnist_demo():
+    st.title("Dự đoán Chữ số MNIST 🎨")
+
+    # Khởi tạo MLflow
+    if 'dagshub_initialized' not in st.session_state:
+        DAGSHUB_REPO = mlflow_input()
+        st.session_state['dagshub_initialized'] = True
+        st.session_state['mlflow_url'] = DAGSHUB_REPO
+
+    # Đóng run MLflow nếu đang mở
+    if mlflow.active_run():
+        mlflow.end_run()
+
+    # Phần 1: Chọn mô hình từ MLflow
+    st.header("Bước 1: Chọn Mô hình")
+    runs = get_mlflow_runs("MNIST_Training")
+    if not runs:
+        st.error("Không tìm thấy mô hình nào trong 'MNIST_Training'. Vui lòng huấn luyện mô hình trước.")
+        st.info("Chạy file 'train_mnist.py' để tạo mô hình.")
+        return
+
+    run_options = [
+        f"{run.data.tags.get('mlflow.runName', 'Không tên')} (Độ chính xác: {run.data.metrics.get('valid_accuracy', 0):.4f}, Thời gian: {datetime.datetime.fromtimestamp(run.info.start_time / 1000).strftime('%Y-%m-%d %H:%M:%S') if run.info.start_time else 'Không rõ'}) - ID: {run.info.run_id}"
+        for run in runs
+    ]
+    selected_run = st.selectbox("Chọn mô hình đã huấn luyện", options=run_options, key="model_select")
+    selected_run_id = selected_run.split(" - ID: ")[-1]
+
+    # Tải mô hình và scaler
+    try:
+        with st.spinner("Đang tải mô hình và scaler..."):
+            model = mlflow.sklearn.load_model(f"runs:/{selected_run_id}/model")
+            scaler = mlflow.sklearn.load_model(f"runs:/{selected_run_id}/scaler")
+        st.success(f"Đã tải mô hình từ Run ID: {selected_run_id}")
+    except Exception as e:
+        st.error(f"Không thể tải mô hình hoặc scaler: {str(e)}. Đảm bảo run chứa 'model' và 'scaler'.")
+        return
+
+    # Phần 2: Nhập dữ liệu
+    st.header("Bước 2: Nhập Chữ số")
+    input_method = st.radio("Chọn cách nhập dữ liệu:", ["Vẽ trên canvas", "Tải lên ảnh"], key="input_method")
+
+    input_data = None
+    image = None
+    if input_method == "Vẽ trên canvas":
+        canvas_result = st_canvas(
+            fill_color="white",
+            stroke_width=10,
+            stroke_color="black",
+            background_color="white",
+            height=280,
+            width=280,
+            drawing_mode="freedraw",
+            key="canvas"
+        )
+        if canvas_result.image_data is not None:
+            image = Image.fromarray(canvas_result.image_data)
+            input_data = preprocess_image(image)
+            st.image(image, caption="Hình ảnh bạn vẽ", width=280)
+
+    else:  # Tải lên ảnh
+        uploaded_file = st.file_uploader("Tải lên ảnh (PNG/JPG, 28x28, đen trên nền trắng)", type=["png", "jpg", "jpeg"])
+        if uploaded_file is not None:
+            image = Image.open(uploaded_file)
+            input_data = preprocess_image(image)
+            st.image(image, caption="Hình ảnh đã tải lên", width=280)
+
+    # Phần 3: Dự đoán và lưu kết quả
+    if input_data is not None and st.button("Dự đoán", key="predict_button"):
+        with st.spinner("Đang dự đoán..."):
+            X_input_scaled = scaler.transform(input_data)
+            prediction = model.predict(X_input_scaled)[0]
+            confidence = model.predict_proba(X_input_scaled)[0][prediction] if hasattr(model, "predict_proba") else 0.5
+
+            st.header("Bước 3: Kết quả")
+            st.write(f"**Chữ số dự đoán**: {prediction}")
+            st.write(f"**Độ tin cậy**: {confidence:.2%}")
+            st.image(image, caption=f"Dự đoán: {prediction} (Độ tin cậy: {confidence:.2%})", width=280)
+
+            # Log vào MLflow
+            timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            run_name = f"Prediction_{input_method.replace(' ', '_')}_{timestamp}"
+            with st.spinner("Đang lưu kết quả vào MLflow..."):
+                client = mlflow.tracking.MlflowClient()
+                experiment_id = client.get_experiment_by_name("MNIST_Demo").experiment_id if client.get_experiment_by_name("MNIST_Demo") else client.create_experiment("MNIST_Demo")
+                with mlflow.start_run(run_name=run_name, experiment_id=experiment_id) as run:
+                    mlflow.log_param("model_run_id", selected_run_id)
+                    mlflow.log_param("predicted_digit", prediction)
+                    mlflow.log_param("confidence", confidence)
+                    mlflow.log_param("input_method", input_method)
+                    image_buffer = BytesIO()
+                    image.save(image_buffer, format="PNG")
+                    mlflow.log_artifact(image_buffer, "input_image.png")
+                    run_id = run.info.run_id
+
+            st.success(f"Kết quả đã được lưu vào MLflow (Run ID: {run_id})")
+            st.markdown(f"Xem chi tiết tại: [{st.session_state['mlflow_url']}]({st.session_state['mlflow_url']})")
+
+if __name__ == "__main__":
+    show_mnist_demo()
