@@ -6,7 +6,6 @@ import os
 import datetime
 from PIL import Image
 from streamlit_drawable_canvas import st_canvas
-from io import BytesIO
 import logging
 
 # Tắt cảnh báo không cần thiết
@@ -144,7 +143,7 @@ def show_mnist_demo():
             st.write(f"**Độ tin cậy**: {confidence:.2%}")
             st.image(image, caption=f"Dự đoán: {prediction} (Độ tin cậy: {confidence:.2%})", width=280)
 
-            # Log vào MLflow
+            # Log vào MLflow (chỉ lưu kết quả dự đoán)
             timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             run_name = f"Prediction_{input_method.replace(' ', '_')}_{timestamp}"
             with st.spinner("Đang lưu kết quả vào MLflow..."):
@@ -156,9 +155,6 @@ def show_mnist_demo():
                     mlflow.log_param("predicted_digit", prediction)
                     mlflow.log_param("confidence", confidence)
                     mlflow.log_param("input_method", input_method)
-                    image_buffer = BytesIO()
-                    image.save(image_buffer, format="PNG")
-                    mlflow.log_artifact("input_image.png", artifact_file=image_buffer.getvalue())
                     run_id = run.info.run_id
 
             st.success(f"Kết quả đã được lưu vào MLflow (Run ID: {run_id})")
