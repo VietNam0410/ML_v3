@@ -92,15 +92,17 @@ def show_mnist_demo():
     selected_run = st.selectbox("Chọn mô hình đã huấn luyện", options=run_options, key="model_select")
     selected_run_id = selected_run.split(" - ID: ")[-1]
 
-    # Tải mô hình và scaler
-    try:
-        with st.spinner("Đang tải mô hình và scaler..."):
+    # Tải mô hình và scaler với thông báo cho người dùng
+    model = None
+    scaler = None
+    with st.spinner("Đang tải mô hình và scaler từ MLflow (Run ID: {selected_run_id})..."):
+        try:
             model = mlflow.sklearn.load_model(f"runs:/{selected_run_id}/model")
             scaler = mlflow.sklearn.load_model(f"runs:/{selected_run_id}/scaler")
-        st.success(f"Đã tải mô hình từ Run ID: {selected_run_id}")
-    except Exception as e:
-        st.error(f"Không thể tải mô hình hoặc scaler: {str(e)}. Đảm bảo run chứa 'model' và 'scaler'.")
-        return
+            st.success(f"Đã tải mô hình thành công từ Run ID: {selected_run_id}")
+        except Exception as e:
+            st.error(f"Không thể tải mô hình hoặc scaler: {str(e)}. Đảm bảo run chứa 'model' và 'scaler'.")
+            return
 
     # Phần 2: Nhập dữ liệu
     st.header("Bước 2: Nhập Chữ số")
