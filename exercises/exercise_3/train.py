@@ -41,13 +41,13 @@ def train_clustering(X_full, y_full):
     mlflow.set_experiment('MNIST_Train_Clustering')
 
     total_samples = len(X_full)
-    max_samples = st.slider('Số mẫu tối đa', 0, total_samples, min(10000, total_samples), step=100)
-    if max_samples == 0:
-        max_samples = total_samples
+    max_samples = st.slider('Số mẫu tối đa', 1000, 70000, min(10000, total_samples), step=1000, key='max_samples_ex3')
     if max_samples < total_samples:
         indices = np.random.choice(total_samples, max_samples, replace=False)
         X_full = X_full[indices]
         y_full = y_full[indices]
+    if max_samples > 50000:
+        st.warning('Số mẫu lớn (>50,000) có thể làm chậm huấn luyện.')
 
     test_size = st.slider('Tỷ lệ kiểm tra (%)', 10, 50, 20, step=5) / 100
     train_size_relative = st.slider('Tỷ lệ huấn luyện (%)', 50, 90, 70, step=5) / 100
@@ -70,21 +70,21 @@ def train_clustering(X_full, y_full):
     X_train_scaled = scaler.fit_transform(X_train_flat)
     X_valid_scaled = scaler.transform(X_valid_flat)
 
-    model_choice = st.selectbox('Chọn thuật toán', ['K-means', 'DBSCAN'])
+    model_choice = st.selectbox('Chọn thuật toán', ['K-means', 'DBSCAN'], key='model_choice_ex3')
     if model_choice == 'K-means':
-        n_clusters = st.slider('Số cụm (K)', 2, 20, 10)
+        n_clusters = st.slider('Số cụm (K)', 2, 20, 10, key='n_clusters_ex3')
         model_params = {'n_clusters': n_clusters, 'random_state': 42}
     else:
-        eps = st.slider('Khoảng cách tối đa (eps)', 0.1, 2.0, 0.5, step=0.1)
-        min_samples = st.slider('Số điểm tối thiểu', 2, 20, 5)
+        eps = st.slider('Khoảng cách tối đa (eps)', 0.1, 2.0, 0.5, step=0.1, key='eps_ex3')
+        min_samples = st.slider('Số điểm tối thiểu', 2, 20, 5, key='min_samples_ex3')
         model_params = {'eps': eps, 'min_samples': min_samples}
 
-    run_name = st.text_input('Nhập tên Run ID', value='')
+    run_name = st.text_input('Nhập tên Run ID', value='', key='run_name_ex3')
     if not run_name.strip():
         timestamp = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
         run_name = f'MNIST_{model_choice}_{timestamp}'
 
-    if st.button('Huấn luyện'):
+    if st.button('Huấn luyện', key='train_button_ex3'):
         with st.spinner(f'Đang huấn luyện {model_choice}...'):
             model = get_model(model_choice, **model_params)
             model.fit(X_train_scaled)

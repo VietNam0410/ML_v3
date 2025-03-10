@@ -26,7 +26,9 @@ def train_dimensionality_reduction(X, y, method, n_components):
     if method == "PCA":
         model = PCA(n_components=n_components)
     elif method == "t-SNE":
-        model = TSNE(n_components=n_components, perplexity=15, n_iter=500, random_state=42, n_jobs=-1)
+        # Giảm perplexity và n_iter nếu số mẫu lớn để tránh quá tải
+        perplexity = min(30, max(5, X.shape[0] // 100))  # Tự động điều chỉnh
+        model = TSNE(n_components=n_components, perplexity=perplexity, n_iter=300, random_state=42, n_jobs=-1)
     
     X_reduced = model.fit_transform(X_scaled)
     duration = (datetime.datetime.now() - start_time).total_seconds()
@@ -59,18 +61,19 @@ def log_results(method, n_components, duration, X, y, X_reduced, model):
 def dimensionality_reduction_app(X, y):
     st.title("🌐 Giảm Chiều Dữ Liệu MNIST")
     total_samples = len(X)
-    max_samples = st.slider("Chọn số lượng mẫu", 0, total_samples, min(10000, total_samples), step=1000)
-    if max_samples == 0:
-        max_samples = total_samples
+    max_samples = st.slider("Chọn số lượng mẫu", 1000, 70000, min(10000, total_samples), step=1000, key='max_samples_ex4')
     if max_samples < total_samples:
         indices = np.random.choice(total_samples, max_samples, replace=False)
         X, y = X[indices], y[indices]
+    if max_samples > 50000:
+        st.warning('Số mẫu lớn (>50,000) có thể làm chậm xử lý, đặc biệt với t-SNE.')
 
-    method = st.selectbox("Chọn phương pháp", ["PCA", "t-SNE"])
-    n_components = st.slider("Chọn số chiều", 2, 3, 2)
+    method = st.selectbox("Chọn phương pháp", ["PCA", "t-SNE"], key='method_ex4')
+    n_components = st.slider("Chọn số chiều", 2, 3, 2, key='n_components_ex4')
 
-    if st.button("Giảm chiều"):
-        X_reduced, model, duration = train_dimensionality_reduction(X, y, method, n_components)
-        visualize_reduction(X_reduced, y, method, n_components)
-        log_results(method, n_components, duration, X, y, X_reduced, model)
-        st.success(f"Hoàn tất trong {duration:.2f} giây!")
+    if st.button("Giảm chiều", key='reduce_button_ex4'):
+        with st.spinner(f'Đang giảm chiều với {method} ({max_samples} mẫu)...'):
+            X_reduced, model, duration = train_dimensionality_reduction(X, y, method, n_components)
+            visualize_reduction(X_reduced, y, method, n_components)
+            log_results(method, n_components, duration, X, y, X_reduced, model)
+            st.success(f"Hoàn tất trong {duration:.2f} giây!")

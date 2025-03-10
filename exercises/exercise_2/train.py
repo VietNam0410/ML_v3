@@ -44,13 +44,13 @@ def train_mnist(X_full, y_full):
 
     total_samples = len(X_full)
     st.subheader('Chia tập dữ liệu MNIST 🔀')
-    max_samples = st.slider('Số mẫu tối đa', 0, total_samples, min(10000, total_samples), step=100)
-    if max_samples == 0:
-        max_samples = total_samples
+    max_samples = st.slider('Số mẫu tối đa', 1000, 70000, min(10000, total_samples), step=1000, key='max_samples_ex2')
     if max_samples < total_samples:
         indices = np.random.choice(total_samples, max_samples, replace=False)
         X_full = X_full[indices]
         y_full = y_full[indices]
+    if max_samples > 50000:
+        st.warning('Số mẫu lớn (>50,000) có thể làm chậm huấn luyện.')
 
     test_size = st.slider('Tỷ lệ tập kiểm tra (%)', 10, 50, 20, step=5) / 100
     train_size_relative = st.slider('Tỷ lệ tập huấn luyện (%)', 50, 90, 70, step=5) / 100
@@ -77,21 +77,21 @@ def train_mnist(X_full, y_full):
     X_test_scaled = scaler.transform(X_test_flat)
 
     st.subheader('Huấn luyện Mô hình 🎯')
-    model_choice = st.selectbox('Chọn thuật toán', ['SVM', 'Decision Tree'])
+    model_choice = st.selectbox('Chọn thuật toán', ['SVM', 'Decision Tree'], key='model_choice_ex2')
     model_params = {}
     if model_choice == 'SVM':
-        kernel = st.selectbox('Kernel', ['linear', 'rbf', 'poly'], index=1)
+        kernel = st.selectbox('Kernel', ['linear', 'rbf', 'poly'], index=1, key='svm_kernel_ex2')
         model_params = {'kernel': kernel, 'probability': True, 'random_state': 42}
     else:
-        max_depth = st.slider('Độ sâu tối đa', 3, 20, 10, step=1)
+        max_depth = st.slider('Độ sâu tối đa', 3, 20, 10, step=1, key='dt_max_depth_ex2')
         model_params = {'max_depth': max_depth, 'random_state': 42}
 
-    run_name = st.text_input('Nhập tên Run ID', value='')
+    run_name = st.text_input('Nhập tên Run ID', value='', key='run_name_ex2')
     if not run_name.strip():
         timestamp = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
         run_name = f'MNIST_{model_choice}_{timestamp}'
 
-    if st.button('Huấn luyện'):
+    if st.button('Huấn luyện', key='train_button_ex2'):
         with st.spinner('Đang huấn luyện mô hình...'):
             model = get_model(model_choice, **model_params)
             model.fit(X_train_scaled, y_train)

@@ -33,7 +33,11 @@ def introduce_mnist(X, y):
     st.write(f'**Kích thước mỗi ảnh**: 28x28 pixel (grayscale)')
     st.write(f'**Số lớp**: 10 (0-9)')
 
-    num_examples = st.slider('Chọn số lượng ví dụ', 1, 10, 5)
+    if 'num_examples_ex3' not in st.session_state:
+        st.session_state['num_examples_ex3'] = 5
+    num_examples = st.slider('Chọn số lượng ví dụ', 1, 10, st.session_state['num_examples_ex3'],
+                             key='num_examples_slider_ex3',
+                             on_change=lambda: st.session_state.update(num_examples_ex3=st.session_state.num_examples_slider_ex3))
     visualize_mnist(X, y, num_examples)
 
     st.header('📈 Phân phối nhãn')

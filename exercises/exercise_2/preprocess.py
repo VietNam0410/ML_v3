@@ -35,9 +35,12 @@ def preprocess_mnist(X_full, y_full):
     st.subheader('Thông tin Dữ liệu MNIST Đầy đủ 🔍')
     st.write(f'Tổng số lượng mẫu: {total_samples}')
 
+    if 'num_examples' not in st.session_state:
+        st.session_state['num_examples'] = 5
     num_examples = st.slider(
         'Chọn số lượng ví dụ chữ số để xem (tối đa 10)',
-        min_value=1, max_value=10, value=5, key='num_examples_slider'
+        min_value=1, max_value=10, value=st.session_state['num_examples'],
+        key='num_examples_slider_ex2', on_change=lambda: st.session_state.update(num_examples=st.session_state.num_examples_slider_ex2)
     )
     visualize_mnist(X_full, y_full, num_examples)
 
