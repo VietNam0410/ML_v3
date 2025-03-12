@@ -1,6 +1,6 @@
 streamlit
 pandas
-#tensorflow
+tensorflow
 pillow
 numpy
 scikit-learn
