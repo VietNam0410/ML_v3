@@ -4,8 +4,8 @@ import mlflow
 from mlflow.tracking import MlflowClient
 import os
 import logging
-import numpy as np  # Thêm import numpy
-import datetime  # Thêm import datetime
+import numpy as np
+import datetime
 
 # Thiết lập logging để debug nếu cần
 logging.getLogger("mlflow").setLevel(logging.INFO)
@@ -33,23 +33,48 @@ def display_logs(_client, experiment_name):
     for run in runs:
         run_name = run.data.tags.get("mlflow.runName", run.info.run_id)
         model_type = run.data.params.get("model_type", "N/A")
-        timestamp = run.data.params.get("timestamp", "N/A")
-        if experiment_name == "MNIST_Train_Clustering":
-            n_clusters = run.data.metrics.get("n_clusters_found", np.nan)
-            silhouette = run.data.metrics.get("silhouette_valid", np.nan)
-            silhouette_value = float(silhouette) if not pd.isna(silhouette) else np.nan
-            data.append({
-                "Tên Run": run_name,
-                "Loại Mô hình": model_type,
-                "Thời gian": timestamp,
-                "Số cụm": n_clusters if not pd.isna(n_clusters) else "N/A",
-                "Silhouette Score": silhouette_value,
-                "Run ID": run.info.run_id,
-                "Experiment": experiment_name
-            })
+        log_time = run.data.params.get("log_time", datetime.datetime.fromtimestamp(run.info.start_time / 1000).strftime('%Y-%m-%d %H:%M:%S'))
+
+        # Lấy các tham số cụ thể dựa trên model_type
+        if model_type == "K-means":
+            n_clusters = run.data.params.get("n_clusters", "N/A")
+            eps = "N/A"
+            min_samples = "N/A"
+        elif model_type == "DBSCAN":
+            n_clusters = run.data.metrics.get("n_clusters_found", "N/A")
+            eps = run.data.params.get("eps", "N/A")
+            min_samples = run.data.params.get("min_samples", "N/A")
+        else:
+            n_clusters = "N/A"
+            eps = "N/A"
+            min_samples = "N/A"
+
+        # Lấy các metrics
+        silhouette_train = run.data.metrics.get("silhouette_train", np.nan)
+        silhouette_valid = run.data.metrics.get("silhouette_valid", np.nan)
+        training_duration = run.data.metrics.get("training_duration", np.nan)
+
+        # Chuyển đổi kiểu dữ liệu nếu cần
+        silhouette_train = float(silhouette_train) if not pd.isna(silhouette_train) else np.nan
+        silhouette_valid = float(silhouette_valid) if not pd.isna(silhouette_valid) else np.nan
+        training_duration = float(training_duration) if not pd.isna(training_duration) else np.nan
+
+        data.append({
+            "Tên Run": run_name,
+            "Loại Mô hình": model_type,
+            "Thời gian Log": log_time,
+            "Số cụm": n_clusters,
+            "eps": eps,
+            "min_samples": min_samples,
+            "Silhouette Score (Train)": silhouette_train,
+            "Silhouette Score (Valid)": silhouette_valid,
+            "Thời gian huấn luyện (giây)": training_duration,
+            "Run ID": run.info.run_id,
+            "Experiment": experiment_name
+        })
     
     df = pd.DataFrame(data, dtype='object')
-    st.dataframe(df, hide_index=True, width=1000)
+    st.dataframe(df, hide_index=True, width=1200)
     return df, runs
 
 # Hàm xóa log theo lựa chọn
@@ -83,12 +108,3 @@ def view_clustering_logs():
         selected_train_runs = st.multiselect("Chọn các run huấn luyện để xóa", train_run_ids)
         if st.button("Xóa các run huấn luyện đã chọn", key="delete_train_runs"):
             clear_selected_logs(client, selected_train_runs)
-
-    # Thêm nút làm mới cache với key duy nhất
-    if st.button("🔄 Làm mới dữ liệu", key=f"refresh_data_{datetime.datetime.now().microsecond}"):
-        st.cache_data.clear()
-        st.rerun()
-
-# Hàm chính
-if __name__ == "__main__":
-    view_clustering_logs()

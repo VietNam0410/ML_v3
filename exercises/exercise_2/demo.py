@@ -61,7 +61,7 @@ def preprocess_image(image):
     return image_array.reshape(1, 28 * 28)
 
 # Hàm chính
-def show_mnist_demo():
+def mnist_demo():
     st.title("Dự đoán Chữ số MNIST 🎨")
 
     # Khởi tạo MLflow
@@ -92,10 +92,10 @@ def show_mnist_demo():
     selected_run = st.selectbox("Chọn mô hình đã huấn luyện", options=run_options, key="model_select")
     selected_run_id = selected_run.split(" - ID: ")[-1]
 
-    # Tải mô hình và scaler với thông báo cho người dùng
+    # Tải mô hình và scaler
     model = None
     scaler = None
-    with st.spinner("Đang tải mô hình và scaler từ MLflow (Run ID: {selected_run_id})..."):
+    with st.spinner(f"Đang tải mô hình và scaler từ MLflow (Run ID: {selected_run_id})..."):
         try:
             model = mlflow.sklearn.load_model(f"runs:/{selected_run_id}/model")
             scaler = mlflow.sklearn.load_model(f"runs:/{selected_run_id}/scaler")
@@ -145,7 +145,7 @@ def show_mnist_demo():
             st.write(f"**Độ tin cậy**: {confidence:.2%}")
             st.image(image, caption=f"Dự đoán: {prediction} (Độ tin cậy: {confidence:.2%})", width=280)
 
-            # Log vào MLflow (chỉ lưu kết quả dự đoán)
+            # Log vào MLflow (Experiment: MNIST_Demo)
             timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             run_name = f"Prediction_{input_method.replace(' ', '_')}_{timestamp}"
             with st.spinner("Đang lưu kết quả vào MLflow..."):
@@ -161,6 +161,3 @@ def show_mnist_demo():
 
             st.success(f"Kết quả đã được lưu vào MLflow (Run ID: {run_id})")
             st.markdown(f"Xem chi tiết tại: [{st.session_state['mlflow_url']}]({st.session_state['mlflow_url']})")
-
-if __name__ == "__main__":
-    show_mnist_demo()

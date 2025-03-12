@@ -4,7 +4,7 @@ import mlflow
 from mlflow.tracking import MlflowClient
 import os
 import logging
-import numpy as np  # Thêm import numpy
+import numpy as np
 import datetime
 
 # Thiết lập logging để debug nếu cần
@@ -25,7 +25,7 @@ def display_logs(_client, experiment_name):
         return None, None
     
     runs = _client.search_runs(experiment_ids=[experiment.experiment_id])
-    if not runs:
+    if len(runs) == 0:  # Sử dụng len(runs) thay vì runs.empty để tránh lỗi PagedList
         st.warning(f"Không có log nào trong experiment '{experiment_name}'.")
         return None, None
     
@@ -34,20 +34,18 @@ def display_logs(_client, experiment_name):
         run_name = run.data.tags.get("mlflow.runName", run.info.run_id)
         method = run.data.params.get("method", "N/A")
         n_components = run.data.params.get("n_components", "N/A")
-        source = run.data.params.get("source", "N/A")
-        timestamp = run.data.params.get("timestamp", "N/A")
-        confidence = run.data.metrics.get("confidence", np.nan)
+        max_samples = run.data.params.get("max_samples", "N/A")
+        log_time = run.data.params.get("log_time", datetime.datetime.fromtimestamp(run.info.start_time / 1000).strftime('%Y-%m-%d %H:%M:%S'))
+        duration = run.data.metrics.get("duration_seconds", np.nan)
         explained_variance = run.data.metrics.get("explained_variance_ratio", np.nan)
-        position = [run.data.metrics.get(f"position_{i}", np.nan) for i in range(3)]
         data.append({
             "Tên Run": run_name,
             "Phương pháp": method,
             "Số chiều": n_components,
-            "Nguồn": source,
-            "Thời gian": timestamp,
-            "Vị trí": str(position[:int(n_components) if n_components != "N/A" else 2]),  # Chỉ lấy số chiều tương ứng
-            "Độ tin cậy": confidence,  # Sử dụng np.nan thay vì "N/A"
-            "Phương sai": explained_variance,  # Sử dụng np.nan thay vì "N/A"
+            "Số mẫu": max_samples,  # Thêm từ train.py
+            "Thời gian Log": log_time,
+            "Thời gian chạy (giây)": duration,  # Thêm từ train.py
+            "Phương sai": explained_variance,
             "Run ID": run.info.run_id
         })
     
@@ -86,12 +84,3 @@ def view_logs_app():
         selected_train_runs = st.multiselect("Chọn các run huấn luyện để xóa", train_run_ids)
         if st.button("Xóa các run huấn luyện đã chọn", key="delete_train_runs"):
             clear_selected_logs(client, selected_train_runs)
-
-    # Thêm nút làm mới cache với key duy nhất
-    if st.button("🔄 Làm mới dữ liệu", key=f"refresh_data_{datetime.datetime.now().microsecond}"):
-        st.cache_data.clear()
-        st.rerun()
-
-# Hàm chính
-if __name__ == "__main__":
-    view_logs_app()
