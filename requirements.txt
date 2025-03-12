@@ -1,6 +1,6 @@
 streamlit
 pandas
-tensorflow
+#tensorflow
 pillow
 numpy
 scikit-learn
@@ -11,3 +11,4 @@ dagshub
 seaborn
 plotly
 matplotlib
+#tqdm
