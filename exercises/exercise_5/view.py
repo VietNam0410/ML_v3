@@ -27,8 +27,8 @@ def show_mnist_demo():
     st.subheader("Danh Sách Các Run Đã Lưu")
     expected_columns = ['params.n_hidden_layers', 'params.neurons_per_layer', 'params.epochs', 
                         'params.batch_size', 'params.learning_rate', 'params.activation', 
-                        'params.samples', 'metrics.train_accuracy', 'metrics.val_accuracy',
-                        'metrics.train_loss', 'metrics.val_loss']
+                        'params.samples', 'metrics.train_accuracy', 'metrics.test_accuracy',
+                        'metrics.train_loss', 'metrics.test_loss']
     for col in expected_columns:
         if col not in runs.columns:
             runs[col] = None
@@ -43,10 +43,23 @@ def show_mnist_demo():
     st.subheader("Thông Tin Run Được Chọn")
     st.write(f"**Run ID**: {selected_run}")
     if run_info.data.metrics:
-        st.write(f"**Độ chính xác (Train)**: {run_info.data.metrics.get('train_accuracy', 'N/A') if isinstance(run_info.data.metrics.get('train_accuracy', 'N/A'), (int, float)) else run_info.data.metrics.get('train_accuracy', 'N/A'):.4f}")
-        st.write(f"**Độ chính xác (Validation)**: {run_info.data.metrics.get('val_accuracy', 'N/A') if isinstance(run_info.data.metrics.get('val_accuracy', 'N/A'), (int, float)) else run_info.data.metrics.get('val_accuracy', 'N/A'):.4f}")
-        st.write(f"**Mất mát (Train)**: {run_info.data.metrics.get('train_loss', 'N/A') if isinstance(run_info.data.metrics.get('train_loss', 'N/A'), (int, float)) else run_info.data.metrics.get('train_loss', 'N/A'):.4f}")
-        st.write(f"**Mất mát (Validation)**: {run_info.data.metrics.get('val_loss', 'N/A') if isinstance(run_info.data.metrics.get('val_loss', 'N/A'), (int, float)) else run_info.data.metrics.get('val_loss', 'N/A'):.4f}")
+        # Lấy và định dạng các metric
+        train_accuracy = run_info.data.metrics.get('train_accuracy', 'N/A')
+        test_accuracy = run_info.data.metrics.get('test_accuracy', 'N/A')
+        train_loss = run_info.data.metrics.get('train_loss', 'N/A')
+        test_loss = run_info.data.metrics.get('test_loss', 'N/A')
+
+        # Định dạng giá trị
+        formatted_train_acc = f"{train_accuracy:.4f}" if isinstance(train_accuracy, (int, float)) else train_accuracy
+        formatted_test_acc = f"{test_accuracy:.4f}" if isinstance(test_accuracy, (int, float)) else test_accuracy
+        formatted_train_loss = f"{train_loss:.4f}" if isinstance(train_loss, (int, float)) else train_loss
+        formatted_test_loss = f"{test_loss:.4f}" if isinstance(test_loss, (int, float)) else test_loss
+
+        # Hiển thị kết quả
+        st.write(f"**Độ chính xác (Train)**: {formatted_train_acc}")
+        st.write(f"**Độ chính xác (Test)**: {formatted_test_acc}")
+        st.write(f"**Mất mát (Train)**: {formatted_train_loss}")
+        st.write(f"**Mất mát (Test)**: {formatted_test_loss}")
     else:
         st.warning("Không có metrics nào được ghi lại cho run này.")
 

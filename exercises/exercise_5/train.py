@@ -1,3 +1,4 @@
+import os
 import streamlit as st
 import numpy as np
 from tensorflow.keras.models import Sequential
@@ -7,8 +8,8 @@ from tensorflow.keras.optimizers import Adam
 import mlflow
 import mlflow.keras
 import plotly.graph_objects as go
-import os
-from datetime import datetime  # Import datetime để sửa lỗi
+from sklearn.model_selection import train_test_split
+from datetime import datetime
 
 # Thiết lập MLflow
 DAGSHUB_MLFLOW_URI = "https://dagshub.com/VietNam0410/ML_v3.mlflow"
@@ -39,7 +40,7 @@ def train_mnist(X_full, y_full):
     st.markdown("""
     Dùng Neural Network để đoán số viết tay từ MNIST.  
     Chọn các tham số dưới đây và xem mô hình học như thế nào!  
-    **Lưu ý**: Kết quả dựa trên tập train (80%) và validation (20%) từ dữ liệu đầu vào.
+    **Lưu ý**: Kết quả dựa trên tập train và test từ dữ liệu đầu vào.
     """)
 
     # Khởi tạo session_state để lưu giá trị learning_rate
@@ -59,8 +60,18 @@ def train_mnist(X_full, y_full):
     y_cat = to_categorical(y, 10)
     st.write(f"Đã chọn {max_samples} mẫu để huấn luyện.")
 
-    # Tham số huấn luyện (mặc định tối ưu)
-    st.subheader("2. Thiết Lập Tham Số")
+    # Chia dữ liệu thành train và test
+    st.subheader("2. Chia Dữ Liệu")
+    test_size = st.slider("Tỷ lệ tập test (%)", 10, 30, 20, step=5) / 100
+    train_size = 1 - test_size
+
+    X_train, X_test, y_train, y_test = train_test_split(X, y_cat, test_size=test_size, random_state=42, stratify=y)
+
+    st.write(f"Tỷ lệ: Train {train_size*100:.1f}%, Test {test_size*100:.1f}%")
+    st.write(f"Số mẫu: Train {len(X_train)}, Test {len(X_test)}")
+
+    # Tham số huấn luyện
+    st.subheader("3. Thiết Lập Tham Số")
     st.markdown("Tùy chỉnh mạng của bạn (các giá trị mặc định được tối ưu để train nhanh):")
     col1, col2 = st.columns(2)
     with col1:
@@ -71,14 +82,14 @@ def train_mnist(X_full, y_full):
         batch_size = st.selectbox("Kích thước batch", [32, 64, 128], index=1, help="64 là tối ưu cho tốc độ.")
         learning_rate = st.number_input(
             "Tốc độ học (η)", 
-            min_value=0.00001,  # Giảm min_value để tăng độ chính xác
-            max_value=0.1, 
-            value=float(st.session_state['learning_rate']), 
-            step=0.00001,  # Giảm step để nhập chuẩn xác hơn
+            min_value=0.00001,
+            max_value=0.1,
+            value=float(st.session_state['learning_rate']),
+            step=0.00001,
             key="learning_rate_input",
             help="Nhập tốc độ học (gợi ý: 0.001 là phù hợp nhất cho MNIST, thử từ 0.0001 đến 0.01 với độ chính xác cao)."
         )
-        activation = st.selectbox("Hàm kích hoạt", ['relu', 'sigmoid', 'tanh', 'softmax'], index=0, 
+        activation = st.selectbox("Hàm kích hoạt", ['relu', 'sigmoid', 'tanh', 'softmax'], index=0,
                                   help="ReLU thường cho kết quả tốt nhất.")
 
     # Cập nhật session_state với giá trị learning_rate mới
@@ -98,8 +109,8 @@ def train_mnist(X_full, y_full):
 
         # Biên dịch mô hình
         optimizer = Adam(learning_rate=st.session_state['learning_rate'])
-        model.compile(optimizer=optimizer, 
-                      loss='categorical_crossentropy', 
+        model.compile(optimizer=optimizer,
+                      loss='categorical_crossentropy',
                       metrics=['accuracy'])
 
         # MLflow
@@ -109,35 +120,36 @@ def train_mnist(X_full, y_full):
             progress_bar = st.progress(1.0)
             st.write("Huấn luyện hoàn tất (thanh tiến trình giả lập 100%).")
 
-            # Huấn luyện mô hình (ẩn quá trình, chỉ lấy kết quả)
-            history = model.fit(X, y_cat, epochs=epochs, batch_size=batch_size, 
-                              validation_split=0.2, verbose=0)
+            # Huấn luyện mô hình
+            history = model.fit(X_train, y_train, epochs=epochs, batch_size=batch_size, verbose=0)
 
-            # Hiển thị đầy đủ kết quả
-            st.subheader("3. Kết Quả Huấn Luyện")
-            train_loss = min(history.history['loss'])
-            val_loss = min(history.history['val_loss'])
-            train_acc = max(history.history['accuracy'])
-            val_acc = max(history.history['val_accuracy'])
-            
-            st.success(f"**Độ chính xác (Train): {train_acc:.4f}**")
-            st.success(f"**Độ chính xác (Validation): {val_acc:.4f}**")
-            st.success(f"**Mất mát (Train): {train_loss:.4f}**")
-            st.success(f"**Mất mát (Validation): {val_loss:.4f}**")
+            # Đánh giá trên tập train và test
+            train_loss, train_acc = model.evaluate(X_train, y_train, verbose=0)
+            test_loss, test_acc = model.evaluate(X_test, y_test, verbose=0)
 
-            # Biểu đồ độ chính xác và mất mát qua các epoch
-            st.subheader("4. Hiệu Suất Qua Các Epoch")
+            # Hiển thị kết quả
+            st.subheader("4. Kết Quả Huấn Luyện")
+            st.success(f"**Độ chính xác (Train)**: {train_acc:.4f}")
+            st.success(f"**Độ chính xác (Test)**: {test_acc:.4f}")
+            st.success(f"**Mất mát (Train)**: {train_loss:.4f}")
+            st.success(f"**Mất mát (Test)**: {test_loss:.4f}")
+
+            # Biểu đồ so sánh độ chính xác và mất mát giữa train và test
+            st.subheader("5. Hiệu Suất So Sánh Train và Test")
             fig = go.Figure()
-            fig.add_trace(go.Scatter(y=history.history['accuracy'], mode='lines', name='Train Accuracy', line=dict(color='blue')))
-            fig.add_trace(go.Scatter(y=history.history['val_accuracy'], mode='lines', name='Validation Accuracy', line=dict(color='orange')))
-            fig.add_trace(go.Scatter(y=history.history['loss'], mode='lines', name='Train Loss', line=dict(color='green')))
-            fig.add_trace(go.Scatter(y=history.history['val_loss'], mode='lines', name='Validation Loss', line=dict(color='red')))
-            fig.update_layout(title="Hiệu suất qua các epoch", xaxis_title="Epoch", yaxis_title="Giá trị", 
-                              height=400)
+            fig.add_trace(go.Bar(x=['Train', 'Test'], y=[train_acc, test_acc], name='Accuracy', marker_color=['blue', 'orange']))
+            fig.add_trace(go.Bar(x=['Train', 'Test'], y=[train_loss, test_loss], name='Loss', marker_color=['green', 'red']))
+            fig.update_layout(
+                title="So sánh Độ chính xác và Mất mát (Train vs Test)",
+                xaxis_title="Tập dữ liệu",
+                yaxis_title="Giá trị",
+                barmode='group',
+                height=400
+            )
             st.plotly_chart(fig, use_container_width=True)
 
             # Biểu đồ cấu trúc mạng
-            st.subheader("5. Cấu Trúc Mạng Neural")
+            st.subheader("6. Cấu Trúc Mạng Neural")
             fig_structure = plot_network_structure(n_hidden_layers, neurons_per_layer)
             st.plotly_chart(fig_structure, use_container_width=True)
 
@@ -150,24 +162,31 @@ def train_mnist(X_full, y_full):
                 "learning_rate": st.session_state['learning_rate'],
                 "activation": activation,
                 "samples": max_samples,
+                "train_size": len(X_train),
+                "test_size": len(X_test),
                 "log_time": f"Thời gian: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
             })
             mlflow.log_metrics({
                 "train_accuracy": float(train_acc),
-                "val_accuracy": float(val_acc),
+                "test_accuracy": float(test_acc),
                 "train_loss": float(train_loss),
-                "val_loss": float(val_loss)
+                "test_loss": float(test_loss)
             })
             mlflow.keras.log_model(model, "model")
 
             # Hiển thị thông tin MLflow
-            st.subheader("6. Thông Tin Được Ghi Lại")
+            st.subheader("7. Thông Tin Được Ghi Lại")
             runs = mlflow.search_runs()
-            expected_columns = ['params.n_hidden_layers', 'params.neurons_per_layer', 'params.epochs', 
-                                'params.batch_size', 'params.learning_rate', 'params.activation', 
-                                'params.samples', 'metrics.train_accuracy', 'metrics.val_accuracy',
-                                'metrics.train_loss', 'metrics.val_loss']
+            expected_columns = ['params.n_hidden_layers', 'params.neurons_per_layer', 'params.epochs',
+                                'params.batch_size', 'params.learning_rate', 'params.activation',
+                                'params.samples', 'metrics.train_accuracy', 'metrics.test_accuracy',
+                                'metrics.train_loss', 'metrics.test_loss']
             for col in expected_columns:
                 if col not in runs.columns:
                     runs[col] = None
             st.dataframe(runs[['run_id', 'params.log_time'] + expected_columns])
+
+if __name__ == "__main__":
+    from tensorflow.keras.datasets import mnist
+    (X_full, y_full), (_, _) = mnist.load_data()
+    train_mnist(X_full, y_full)
