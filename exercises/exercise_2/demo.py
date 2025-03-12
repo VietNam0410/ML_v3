@@ -8,10 +8,11 @@ from PIL import Image
 from streamlit_drawable_canvas import st_canvas
 import logging
 
-# Tắt cảnh báo không cần thiết
-logging.getLogger("mlflow").setLevel(logging.ERROR)
+# Tắt log không cần thiết
+logging.getLogger("mlflow").setLevel(logging.WARNING)
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Tắt log TensorFlow
+os.environ["CUDA_VISIBLE_DEVICES"] = ""  # Chạy trên CPU
 
-# Hàm khởi tạo MLflow
 def mlflow_input():
     DAGSHUB_MLFLOW_URI = "https://dagshub.com/VietNam0410/ML_v3.mlflow"
     mlflow.set_tracking_uri(DAGSHUB_MLFLOW_URI)
@@ -30,9 +31,7 @@ def mlflow_input():
         st.error(f'Lỗi xác thực MLflow: {str(e)}. Vui lòng kiểm tra token tại https://dagshub.com/user/settings/tokens.')
         return None
 
-# Hàm lấy danh sách các run từ MLflow
 def get_mlflow_runs(experiment_name: str = "MNIST_Training"):
-    """Lấy danh sách các run từ MLflow, lọc các run có mô hình và scaler."""
     try:
         client = mlflow.tracking.MlflowClient()
         experiment = client.get_experiment_by_name(experiment_name)
@@ -50,21 +49,17 @@ def get_mlflow_runs(experiment_name: str = "MNIST_Training"):
         st.error(f"Không thể lấy danh sách các run từ MLflow: {str(e)}")
         return []
 
-# Hàm xử lý ảnh đầu vào
 def preprocess_image(image):
-    """Chuyển đổi ảnh thành mảng 28x28 pixel (normalized 0-1)."""
     image = image.resize((28, 28), Image.Resampling.LANCZOS).convert('L')
     image_array = np.array(image)
     threshold = 127
     image_array = (image_array < threshold).astype(np.float32)
-    image_array = 1 - image_array  # Đảo ngược để khớp dữ liệu huấn luyện (đen = 1, trắng = 0)
+    image_array = 1 - image_array  # Đảo ngược để khớp dữ liệu huấn luyện
     return image_array.reshape(1, 28 * 28)
 
-# Hàm chính
 def mnist_demo():
     st.title("Dự đoán Chữ số MNIST 🎨")
 
-    # Khởi tạo MLflow
     if 'dagshub_initialized' not in st.session_state:
         DAGSHUB_URI = mlflow_input()
         if DAGSHUB_URI is None:
@@ -73,11 +68,9 @@ def mnist_demo():
         st.session_state['dagshub_initialized'] = True
         st.session_state['mlflow_url'] = DAGSHUB_URI
 
-    # Đóng run MLflow nếu đang mở
     if mlflow.active_run():
         mlflow.end_run()
 
-    # Phần 1: Chọn mô hình từ MLflow
     st.header("Bước 1: Chọn Mô hình")
     runs = get_mlflow_runs("MNIST_Training")
     if not runs:
@@ -92,7 +85,6 @@ def mnist_demo():
     selected_run = st.selectbox("Chọn mô hình đã huấn luyện", options=run_options, key="model_select")
     selected_run_id = selected_run.split(" - ID: ")[-1]
 
-    # Tải mô hình và scaler
     model = None
     scaler = None
     with st.spinner(f"Đang tải mô hình và scaler từ MLflow (Run ID: {selected_run_id})..."):
@@ -104,7 +96,6 @@ def mnist_demo():
             st.error(f"Không thể tải mô hình hoặc scaler: {str(e)}. Đảm bảo run chứa 'model' và 'scaler'.")
             return
 
-    # Phần 2: Nhập dữ liệu
     st.header("Bước 2: Nhập Chữ số")
     input_method = st.radio("Chọn cách nhập dữ liệu:", ["Vẽ trên canvas", "Tải lên ảnh"], key="input_method")
 
@@ -126,14 +117,13 @@ def mnist_demo():
             input_data = preprocess_image(image)
             st.image(image, caption="Hình ảnh bạn vẽ", width=280)
 
-    else:  # Tải lên ảnh
+    else:
         uploaded_file = st.file_uploader("Tải lên ảnh (PNG/JPG, 28x28, đen trên nền trắng)", type=["png", "jpg", "jpeg"])
         if uploaded_file is not None:
             image = Image.open(uploaded_file)
             input_data = preprocess_image(image)
             st.image(image, caption="Hình ảnh đã tải lên", width=280)
 
-    # Phần 3: Dự đoán và lưu kết quả
     if input_data is not None and st.button("Dự đoán", key="predict_button"):
         with st.spinner("Đang dự đoán..."):
             X_input_scaled = scaler.transform(input_data)
@@ -145,7 +135,6 @@ def mnist_demo():
             st.write(f"**Độ tin cậy**: {confidence:.2%}")
             st.image(image, caption=f"Dự đoán: {prediction} (Độ tin cậy: {confidence:.2%})", width=280)
 
-            # Log vào MLflow (Experiment: MNIST_Demo)
             timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             run_name = f"Prediction_{input_method.replace(' ', '_')}_{timestamp}"
             with st.spinner("Đang lưu kết quả vào MLflow..."):
@@ -161,3 +150,6 @@ def mnist_demo():
 
             st.success(f"Kết quả đã được lưu vào MLflow (Run ID: {run_id})")
             st.markdown(f"Xem chi tiết tại: [{st.session_state['mlflow_url']}]({st.session_state['mlflow_url']})")
+
+if __name__ == "__main__":
+    mnist_demo()

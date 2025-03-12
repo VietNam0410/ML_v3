@@ -7,16 +7,16 @@ import logging
 import numpy as np
 import datetime
 
-# Thiết lập logging để debug nếu cần
-logging.getLogger("mlflow").setLevel(logging.INFO)
+# Thiết lập logging
+logging.getLogger("mlflow").setLevel(logging.WARNING)
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Tắt log TensorFlow
+os.environ["CUDA_VISIBLE_DEVICES"] = ""  # Chạy trên CPU
 
-# Thiết lập MLflow và DagsHub
 DAGSHUB_MLFLOW_URI = "https://dagshub.com/VietNam0410/ML_v3.mlflow"
 mlflow.set_tracking_uri(DAGSHUB_MLFLOW_URI)
 os.environ["MLFLOW_TRACKING_USERNAME"] = "VietNam0410"
 os.environ["MLFLOW_TRACKING_PASSWORD"] = "c9db6bdcca1dfed76d2af2cdb15a9277e6732d6b"
 
-# Hàm hiển thị và xóa log từ experiment
 @st.cache_data
 def display_logs(_client, experiment_name):
     experiment = _client.get_experiment_by_name(experiment_name)
@@ -40,7 +40,6 @@ def display_logs(_client, experiment_name):
             test_acc = run.data.metrics.get("test_accuracy", np.nan)
             training_duration = run.data.metrics.get("training_duration", np.nan)
             
-            # Chuyển đổi kiểu dữ liệu
             train_acc = float(train_acc) if not pd.isna(train_acc) else np.nan
             valid_acc = float(valid_acc) if not pd.isna(valid_acc) else np.nan
             test_acc = float(test_acc) if not pd.isna(test_acc) else np.nan
@@ -63,9 +62,8 @@ def display_logs(_client, experiment_name):
             input_method = run.data.params.get("input_method", "N/A")
             model_run_id = run.data.params.get("model_run_id", "N/A")
             
-            # Chuyển đổi kiểu dữ liệu
             confidence = float(confidence) if not pd.isna(confidence) else np.nan
-            predicted_digit = str(predicted_digit)  # Đảm bảo kiểu dữ liệu đồng nhất
+            predicted_digit = str(predicted_digit)
             
             data.append({
                 "Tên Run": run_name,
@@ -81,7 +79,6 @@ def display_logs(_client, experiment_name):
     st.dataframe(df, hide_index=True, width=1200)
     return df, runs
 
-# Hàm xóa log theo lựa chọn
 def clear_selected_logs(client, selected_runs):
     if not selected_runs:
         st.warning("Vui lòng chọn ít nhất một run để xóa.")
@@ -93,14 +90,11 @@ def clear_selected_logs(client, selected_runs):
         st.success(f"Đã xóa {len(selected_runs)} run thành công!")
     st.rerun()
 
-# Giao diện Streamlit
 def view_logs():
     st.title("📜 Xem và Quản lý Logs MNIST")
 
-    # Tạo client MLflow
     client = MlflowClient()
 
-    # Hiển thị log từ MNIST_Training (huấn luyện)
     st.subheader("Log từ Experiment Huấn luyện (MNIST_Training)")
     with st.spinner("Đang tải log huấn luyện..."):
         train_df, train_runs = display_logs(client, "MNIST_Training")
@@ -111,7 +105,6 @@ def view_logs():
         if st.button("Xóa các run huấn luyện đã chọn", key="delete_train_runs"):
             clear_selected_logs(client, selected_train_runs)
 
-    # Hiển thị log từ MNIST_Demo (dự đoán)
     st.subheader("Log từ Experiment Dự đoán (MNIST_Demo)")
     with st.spinner("Đang tải log dự đoán..."):
         demo_df, demo_runs = display_logs(client, "MNIST_Demo")
@@ -121,3 +114,10 @@ def view_logs():
         selected_demo_runs = st.multiselect("Chọn các run dự đoán để xóa", demo_run_ids)
         if st.button("Xóa các run dự đoán đã chọn", key="delete_demo_runs"):
             clear_selected_logs(client, selected_demo_runs)
+
+    if st.button("🔄 Làm mới dữ liệu", key=f"refresh_data_{datetime.datetime.now().microsecond}"):
+        st.cache_data.clear()
+        st.rerun()
+
+if __name__ == "__main__":
+    view_logs()

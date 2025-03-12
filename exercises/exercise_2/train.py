@@ -10,6 +10,11 @@ import mlflow.sklearn
 import os
 import datetime
 import time
+import logging
+
+# Tắt log không cần thiết từ TensorFlow và MLflow
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Tắt log TensorFlow
+logging.getLogger("mlflow").setLevel(logging.WARNING)  # Giảm log MLflow
 
 @st.cache_resource
 def get_scaler():
@@ -28,6 +33,7 @@ def mlflow_input():
     st.session_state['mlflow_url'] = DAGSHUB_MLFLOW_URI
     os.environ['MLFLOW_TRACKING_USERNAME'] = 'VietNam0410'
     os.environ['MLFLOW_TRACKING_PASSWORD'] = 'c9db6bdcca1dfed76d2af2cdb15a9277e6732d6b'
+    os.environ["CUDA_VISIBLE_DEVICES"] = ""  # Chạy trên CPU để tránh lỗi CUDA
     return 'ML_v3'
 
 def train_mnist(X_full, y_full):
@@ -170,7 +176,7 @@ def train_mnist(X_full, y_full):
             mlflow.log_metric('valid_accuracy', valid_acc)
             mlflow.log_metric('test_accuracy', test_acc)
             mlflow.log_metric('training_duration', training_duration)
-            mlflow.sklearn.log_model(model, 'model', input_example=X_train_scaled[:1])
+            mlflow.sklearn.log_model(model, 'model', input_example=X_train_scaled[:1])  # Đảm bảo input_example hợp lệ
             run_id = mlflow.active_run().info.run_id
 
         # Hiển thị kết quả
@@ -180,3 +186,10 @@ def train_mnist(X_full, y_full):
         st.write(f'Thời gian huấn luyện: {training_duration:.2f} giây')
         st.write(f'Thời gian log: {log_time}')
         st.success(f'Huấn luyện hoàn tất! Run ID: {run_id}')
+
+if __name__ == "__main__":
+    from sklearn.datasets import fetch_openml
+    X, y = fetch_openml('mnist_784', version=1, return_X_y=True, as_frame=False)
+    X = X.astype(np.float32)
+    y = y.astype(np.int64)
+    train_mnist(X, y)
