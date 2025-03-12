@@ -1,10 +1,10 @@
 python3-dev
 python3-pip
-file
+#file
 libjpeg-dev
 zlib1g-dev
 
-libpng-dev
-build-essenthem
-git
+#libpng-dev
+#build-essenthem
+#git
 python3-venv
