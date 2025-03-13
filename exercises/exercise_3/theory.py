@@ -12,8 +12,6 @@ def display_algorithm_info_3():
         st.write("- **n_clusters**: Số lượng cụm (K) cần tạo.")
         st.write("  - Giá trị nhỏ: Ít cụm hơn, có thể mất thông tin chi tiết.")
         st.write("  - Giá trị lớn: Nhiều cụm hơn, có thể dẫn đến overfitting.")
-        st.write("- **init**: Phương pháp khởi tạo tâm cụm.")
-        st.write("  - `k-means++`: Phân bố ban đầu thông minh để tăng tốc độ hội tụ.")
         st.write("  - `random`: Chọn ngẫu nhiên, có thể chậm hội tụ hơn.")
         st.write("- **max_iter**: Số lần lặp tối đa, kiểm soát số lần cập nhật tâm cụm.")
         st.write("- **random_state**: Đặt giá trị cố định để đảm bảo kết quả tái lập được.")
