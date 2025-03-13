@@ -36,12 +36,8 @@ def plot_network_structure(n_hidden_layers, neurons_per_layer):
     return fig
 
 def train_mnist(X_full, y_full):
-    st.title("🧠 Huấn Luyện Neural Network: Nhận Diện Số MNIST")
-    st.markdown("""
-    Dùng Neural Network để đoán số viết tay từ MNIST.  
-    Chọn các tham số dưới đây và xem mô hình học như thế nào!  
-    **Lưu ý**: Kết quả dựa trên tập train và test từ dữ liệu đầu vào.
-    """)
+    st.title("🧠 Huấn Luyện Neural Network")
+
 
     # Khởi tạo session_state để lưu giá trị learning_rate
     if 'learning_rate' not in st.session_state:
