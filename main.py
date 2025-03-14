@@ -25,7 +25,8 @@ from exercises.exercise_4.demo import view_logs_app
 from exercises.exercise_5.introduce import introduce_mnist as introduce_mnist_5
 # from exercises.exercise_5.theory import display_algorithm_info as display_algorithm_info_5
 from exercises.exercise_5.train import train_mnist as train_mnist_5
-from exercises.exercise_5.view import show_mnist_demo as show_mnist_demo_5
+from exercises.exercise_5.demo import demo_mnist_5
+from exercises.exercise_5.view import view_log_5
 from tensorflow.keras.datasets import mnist
 
 # Map bài tập sang tiêu đề
@@ -138,7 +139,7 @@ def display_exercise_5():
     if X_full is None or y_full is None:
         st.error('Dữ liệu MNIST không khả dụng. Vui lòng kiểm tra kết nối.')
         return
-    tab1, tab2, tab3, tab4 = st.tabs(['Giới Thiệu Dữ Liệu', 'Thông Tin', 'Huấn Luyện Mô Hình', 'Xem Logs'])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(['Giới Thiệu Dữ Liệu', 'Thông Tin', 'Huấn Luyện Mô Hình','Thử Nghiệm', 'Xem Logs'])
     with tab1:
         introduce_mnist_5(X_full, y_full)
     # with tab2:
@@ -146,7 +147,9 @@ def display_exercise_5():
     with tab3:
         train_mnist_5(X_full, y_full)
     with tab4:
-        show_mnist_demo_5()
+        demo_mnist_5()
+    with tab5:
+        view_log_5()
 
 # Logic hiển thị chính
 def display_exercise():
