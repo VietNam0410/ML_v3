@@ -2,7 +2,7 @@ import streamlit as st
 import mlflow
 import os  # Đảm bảo import os để tránh lỗi
 
-def show_mnist_demo():
+def view_log_5():
     st.title("📊 Xem Logs Huấn Luyện MNIST")
     st.markdown("Danh sách các lần huấn luyện (runs) được lưu trong MLflow.")
 
