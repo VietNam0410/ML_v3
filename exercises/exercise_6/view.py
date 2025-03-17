@@ -18,11 +18,12 @@ def view_log_6():
     if experiment is None:
         st.error("Không tìm thấy experiment 'MNIST_Pseudo_Labeling_Train' trong MLflow.")
         return
+    
     runs = mlflow.search_runs(experiment_ids=[experiment.experiment_id])
-
-    # Kiểm tra nếu không có run nào
-    if runs.empty:
-        st.warning("Không có run nào được tìm thấy. Vui lòng huấn luyện mô hình trước.")
+    
+    # Kiểm tra nếu runs không phải là DataFrame hoặc rỗng
+    if not isinstance(runs, pd.DataFrame) or runs.empty:
+        st.warning("Không có run nào được tìm thấy hoặc dữ liệu không hợp lệ. Vui lòng huấn luyện mô hình trước.")
         return
 
     # Định nghĩa các cột mong muốn (đồng bộ với train.py)
@@ -43,7 +44,12 @@ def view_log_6():
     # Chuyển đổi các cột params và metrics thành số, chỉ áp dụng cho cột hợp lệ
     numeric_columns = [col for col in df_runs.columns if col.startswith('params.') or col.startswith('metrics.')]
     for col in numeric_columns:
-        df_runs[col] = pd.to_numeric(df_runs[col], errors='coerce').fillna(0)  # Đảm bảo giá trị NaN được thay bằng 0
+        try:
+            # Đảm bảo df_runs[col] là Series và chuyển thành số
+            df_runs[col] = pd.to_numeric(df_runs[col], errors='coerce').fillna(0)
+        except Exception as e:
+            st.error(f"Lỗi khi chuyển đổi cột {col}: {str(e)}")
+            df_runs[col] = 0  # Gán giá trị mặc định nếu lỗi
 
     # Thêm bộ lọc
     st.subheader("Lọc Danh Sách Run")
