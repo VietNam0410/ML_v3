@@ -12,7 +12,7 @@ def view_log_6():
     os.environ["MLFLOW_TRACKING_USERNAME"] = "VietNam0410"
     os.environ["MLFLOW_TRACKING_PASSWORD"] = "c9db6bdcca1dfed76d2af2cdb15a9277e6732d6b"
 
-    # Lấy danh sách các run từ MLflow (experiment mới)
+    # Lấy danh sách các run từ MLflow
     client = mlflow.tracking.MlflowClient()
     experiment = client.get_experiment_by_name("MNIST_Pseudo_Labeling_Train")
     if experiment is None:
@@ -26,7 +26,7 @@ def view_log_6():
         st.warning("Không có run nào được tìm thấy hoặc dữ liệu không hợp lệ. Vui lòng huấn luyện mô hình trước.")
         return
 
-    # Định nghĩa các cột mong muốn (đồng bộ với train.py)
+    # Định nghĩa các cột mong muốn
     expected_columns = [
         'params.n_hidden_layers', 'params.neurons_per_layer', 'params.epochs',
         'params.batch_size', 'params.learning_rate', 'params.activation',
@@ -37,15 +37,19 @@ def view_log_6():
         'metrics.total_correct_pseudo_labels'
     ]
 
-    # Tạo DataFrame với các cột hợp lệ
-    valid_columns = ['run_id', 'params.log_time'] + [col for col in expected_columns if col in runs.columns]
+    # Tạo DataFrame với các cột hợp lệ, loại bỏ trùng lặp
+    valid_columns = ['run_id'] + [col for col in expected_columns if col in runs.columns]
     df_runs = runs[valid_columns].copy()
 
-    # Chuyển đổi các cột params và metrics thành số, chỉ áp dụng cho cột hợp lệ
+    # Kiểm tra và loại bỏ cột trùng lặp
+    if df_runs.columns.duplicated().any():
+        st.warning("Phát hiện cột trùng lặp trong dữ liệu MLflow. Loại bỏ các cột trùng lặp...")
+        df_runs = df_runs.loc[:, ~df_runs.columns.duplicated()]
+
+    # Chuyển đổi các cột params và metrics thành số
     numeric_columns = [col for col in df_runs.columns if col.startswith('params.') or col.startswith('metrics.')]
     for col in numeric_columns:
         try:
-            # Đảm bảo df_runs[col] là Series và chuyển thành số
             df_runs[col] = pd.to_numeric(df_runs[col], errors='coerce').fillna(0)
         except Exception as e:
             st.error(f"Lỗi khi chuyển đổi cột {col}: {str(e)}")
@@ -59,18 +63,28 @@ def view_log_6():
     with col2:
         min_train_acc = st.slider("Độ chính xác Train tối thiểu", min_value=0.0, max_value=1.0, value=0.0, step=0.01)
 
-    # Lọc dữ liệu dựa trên bộ lọc một cách an toàn
+    # Lọc dữ liệu dựa trên bộ lọc
     filtered_runs = df_runs.loc[
         (df_runs['metrics.final_val_accuracy'].fillna(0) >= min_val_acc) &
         (df_runs['metrics.final_train_accuracy'].fillna(0) >= min_train_acc)
     ].copy()
+
+    # Kiểm tra và loại bỏ cột trùng lặp trong filtered_runs
+    if filtered_runs.columns.duplicated().any():
+        st.warning("Phát hiện cột trùng lặp trong filtered_runs. Loại bỏ các cột trùng lặp...")
+        filtered_runs = filtered_runs.loc[:, ~filtered_runs.columns.duplicated()]
+
+    # Đảm bảo tất cả dữ liệu là kiểu cơ bản để tránh lỗi pyarrow
+    for col in filtered_runs.columns:
+        if filtered_runs[col].dtype == 'object':
+            filtered_runs[col] = filtered_runs[col].astype(str)
 
     # Hiển thị danh sách các run đã lọc
     st.subheader("Danh Sách Các Run Đã Lưu (Đã Lọc)")
     if filtered_runs.empty:
         st.warning("Không có run nào khớp với bộ lọc. Vui lòng điều chỉnh bộ lọc.")
     else:
-        st.dataframe(filtered_runs)  # Đảm bảo filtered_runs là DataFrame hợp lệ
+        st.dataframe(filtered_runs)  # Hiển thị DataFrame đã xử lý
 
     # Chọn một run để xem chi tiết
     run_options = filtered_runs['run_id'].tolist()
@@ -102,7 +116,7 @@ def view_log_6():
         else:
             st.warning("Không có metrics nào được ghi lại cho run này.")
 
-        # Hiển thị tham số (Chia thành 2 phần: Tham số chính và Pseudo Labeling)
+        # Hiển thị tham số
         if run_info.data.params:
             st.markdown("### Tham Số Huấn Luyện")
             st.write("#### Tham Số Mạng Nơ-ron")
