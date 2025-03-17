@@ -2,7 +2,7 @@ import os
 import streamlit as st
 import numpy as np
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense, Dropout, Flatten
+from tensorflow.keras.layers import Dense, Flatten
 from tensorflow.keras.utils import to_categorical
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import Callback
@@ -31,7 +31,7 @@ class ProgressCallback(Callback):
         self.progress_bar.progress(progress)
         self.status_text.text(f"Epoch {epoch + 1}/{self.total_epochs} - Loss: {logs['loss']:.4f} - Accuracy: {logs['accuracy']:.4f}")
 
-# Hàm xử lý ảnh (đồng bộ với demo)
+# Hàm xử lý ảnh
 def preprocess_image(image):
     image = image.astype('float32') / 255.0
     image = image.reshape(-1, 28, 28)
@@ -99,7 +99,6 @@ def train_mnist(X_full, y_full):
         batch_size = st.number_input("Kích thước batch", min_value=16, max_value=512, value=64, step=16)
         learning_rate = st.number_input("Tốc độ học (η)", min_value=0.00001, max_value=0.1, value=float(st.session_state['learning_rate']), step=0.00001, key="learning_rate_input")
         activation = st.selectbox("Hàm kích hoạt", ['relu', 'sigmoid', 'tanh'], index=0)
-        dropout_rate = st.number_input("Tỷ lệ Dropout", min_value=0.0, max_value=0.5, value=0.2, step=0.05)
 
     # Tùy chỉnh tên run
     run_name = st.text_input("Tên Run (để trống để tự động tạo)", value="")
@@ -117,7 +116,6 @@ def train_mnist(X_full, y_full):
         model.add(Flatten(input_shape=(28, 28)))
         for _ in range(n_hidden_layers):
             model.add(Dense(neurons_per_layer, activation=activation))
-            model.add(Dropout(dropout_rate))
         model.add(Dense(10, activation='softmax'))
 
         # Biên dịch mô hình
@@ -127,10 +125,10 @@ def train_mnist(X_full, y_full):
         # Huấn luyện mô hình
         mlflow.set_experiment("MNIST_Neural_Network")
         with mlflow.start_run(run_name=run_name) as run:
-            run_id = run.info.run_id  # Lấy run_id từ MLflow run hiện tại
+            run_id = run.info.run_id
             progress_callback = ProgressCallback(epochs)
             history = model.fit(X_train, y_train, epochs=epochs, batch_size=batch_size, 
-                               validation_data=(X_val, y_val), callbacks=[progress_callback], verbose=0)
+                              validation_data=(X_val, y_val), callbacks=[progress_callback], verbose=0)
 
             # Đánh giá trên các tập
             train_loss, train_acc = model.evaluate(X_train, y_train, verbose=0)
@@ -159,14 +157,6 @@ def train_mnist(X_full, y_full):
             fig.add_trace(go.Scatter(x=list(range(1, epochs+1)), y=history.history['val_loss'], mode='lines+markers', name='Validation Loss'))
             fig.update_layout(title="Độ chính xác và Mất mát qua các Epoch", xaxis_title="Epoch", yaxis_title="Giá trị", height=500)
 
-            # Kiểm tra và log biểu đồ nếu kaleido có sẵn
-            try:
-                fig.write_image("training_history.png")
-                mlflow.log_artifact("training_history.png")
-                st.success("Biểu đồ đã được xuất và log thành công.")
-            except ValueError as e:
-                st.warning(f"Không thể xuất biểu đồ thành ảnh do thiếu kaleido. Vui lòng cài đặt: `pip install -U kaleido`. Biểu đồ vẫn được hiển thị.")
-            st.plotly_chart(fig, use_container_width=True)
 
             # Biểu đồ so sánh
             st.subheader("6. So Sánh Train, Validation và Test")
@@ -189,7 +179,6 @@ def train_mnist(X_full, y_full):
                 "batch_size": batch_size,
                 "learning_rate": st.session_state['learning_rate'],
                 "activation": activation,
-                "dropout_rate": dropout_rate,
                 "samples": max_samples,
                 "train_size": len(X_train),
                 "val_size": len(X_val),
@@ -204,22 +193,17 @@ def train_mnist(X_full, y_full):
                 "val_loss": float(val_loss),
                 "test_loss": float(test_loss)
             })
-            # Log model tạm thời
+            # Log model
             mlflow.keras.log_model(model, "model")
-
-            # Đăng ký mô hình nếu hiệu suất tốt
-            if test_acc > 0.9:
-                mlflow.keras.log_model(model, "model", registered_model_name="mnist_model_best")
-                st.success("Mô hình đạt hiệu suất tốt (test_accuracy > 0.9), đã đăng ký vào Registered Models với tên 'mnist_model_best'.")
 
             # Hiển thị thông tin MLflow
             st.subheader("8. Thông Tin Được Ghi Lại")
             runs = mlflow.search_runs()
             expected_columns = ['params.n_hidden_layers', 'params.neurons_per_layer', 'params.epochs',
-                               'params.batch_size', 'params.learning_rate', 'params.activation',
-                               'params.dropout_rate', 'params.samples', 
-                               'metrics.train_accuracy', 'metrics.val_accuracy', 'metrics.test_accuracy', 
-                               'metrics.train_loss', 'metrics.val_loss', 'metrics.test_loss', 'params.log_time']
+                              'params.batch_size', 'params.learning_rate', 'params.activation',
+                              'params.samples', 
+                              'metrics.train_accuracy', 'metrics.val_accuracy', 'metrics.test_accuracy', 
+                              'metrics.train_loss', 'metrics.val_loss', 'metrics.test_loss', 'params.log_time']
             for col in expected_columns:
                 if col not in runs.columns:
                     runs[col] = None

@@ -7,7 +7,6 @@ import mlflow
 import mlflow.keras
 import plotly.graph_objects as go
 from PIL import Image
-import cv2
 from streamlit_drawable_canvas import st_canvas
 
 # Thiết lập MLflow
@@ -74,8 +73,8 @@ def demo_mnist_5():
             stroke_width=20,
             stroke_color="white",
             background_color="black",
-            height=280,
-            width=280,
+            height=280,  
+            width=280,   
             drawing_mode="freedraw",
             key="canvas",
             update_streamlit=not st.session_state['reset_canvas']
@@ -104,35 +103,41 @@ def demo_mnist_5():
         st.subheader("3. Kết Quả Dự Đoán")
         prediction = model.predict(input_image)
         predicted_digit = np.argmax(prediction)
-        confidence = prediction[0][predicted_digit] * 100
-
+        
         # Lấy hiệu suất mô hình từ MLflow
         run_data = runs[runs['run_id'] == run_id].iloc[0]
         test_acc = run_data['metrics.test_accuracy'] * 100 if 'metrics.test_accuracy' in run_data else None
 
-        # Giới hạn độ tin cậy tối đa dựa trên test accuracy
-        if test_acc and confidence > test_acc:
-            confidence = min(confidence, test_acc + 5)  # Thêm 5% để cho phép một chút sai số
-            st.warning(f"**Ghi chú**: Độ tin cậy đã được điều chỉnh xuống {confidence:.2f}% để phù hợp với độ chính xác thực tế của mô hình trên tập test ({test_acc:.2f}%).")
-
+        # Hiển thị chữ số dự đoán
         st.write(f"**Dự đoán**: Chữ số **{predicted_digit}**")
-        st.write(f"**Độ tin cậy**: {confidence:.2f}%")
 
-        # Biểu đồ xác suất (đồng bộ với độ tin cậy đã điều chỉnh)
-        adjusted_prediction = prediction.copy()
-        adjusted_prediction[0][predicted_digit] = confidence / 100  # Cập nhật giá trị trên biểu đồ
+        # Hiển thị độ tin cậy cho tất cả các chữ số
+        st.write("**Độ tin cậy cho từng chữ số:**")
+        probabilities = prediction[0] * 100  # Chuyển sang phần trăm
+        if test_acc:
+            # Giới hạn độ tin cậy tối đa dựa trên test accuracy
+            max_confidence = min(max(probabilities), test_acc + 5)
+            probabilities = np.clip(probabilities, 0, max_confidence)
+            if max(probabilities) == test_acc + 5:
+                st.warning(f"Độ tin cậy đã được điều chỉnh để không vượt quá {test_acc + 5:.2f}% dựa trên độ chính xác tập test ({test_acc:.2f}%).")
+
+        # Hiển thị danh sách độ tin cậy
+        for i, prob in enumerate(probabilities):
+            st.write(f"- Chữ số {i}: {prob:.2f}%")
+
+        # Biểu đồ xác suất
         fig = go.Figure()
         fig.add_trace(go.Bar(
             x=list(range(10)),
-            y=adjusted_prediction[0] * 100,
-            marker_color='blue',
-            text=[f"{x:.1f}%" for x in adjusted_prediction[0] * 100],
+            y=probabilities,
+            marker_color=['blue' if i != predicted_digit else 'red' for i in range(10)],  # Đánh dấu chữ số dự đoán bằng màu đỏ
+            text=[f"{x:.1f}%" for x in probabilities],
             textposition='auto'
         ))
         fig.update_layout(
             title="Xác Suất Dự Đoán Cho Từng Chữ Số",
             xaxis_title="Chữ số (0-9)",
-            yaxis_title="Xác suất (%)",
+            yaxis_title="Độ tin cậy (%)",
             height=400
         )
         st.plotly_chart(fig, use_container_width=True)
@@ -148,12 +153,13 @@ def demo_mnist_5():
         if test_acc: st.write(f"- Test: {test_acc:.2f}%")
         
         if test_acc:
-            if confidence > test_acc + 10:
+            max_prob = max(probabilities)
+            if max_prob > test_acc + 10:
                 st.warning("**Cảnh báo**: Độ tin cậy cao hơn đáng kể so với độ chính xác trên tập test. Kết quả có thể không chính xác.")
-            elif confidence < test_acc - 20:
+            elif max_prob < test_acc - 20:
                 st.info("**Ghi chú**: Độ tin cậy thấp hơn nhiều so với độ chính xác trên tập test. Ảnh đầu vào có thể không rõ ràng.")
     elif input_image is None:
         st.write("Vui lòng vẽ hoặc tải ảnh trước khi dự đoán.")
 
 if __name__ == "__main__":
-    demo_mnist_5()  
+    demo_mnist_5()
