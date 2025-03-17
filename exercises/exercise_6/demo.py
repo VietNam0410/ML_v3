@@ -30,18 +30,18 @@ def preprocess_image(image):
 # Hàm tải mô hình từ MLflow
 @st.cache_resource
 def load_trained_model(run_id):
-    mlflow.set_experiment("MNIST_Pseudo_Labeling")
+    mlflow.set_experiment("MNIST_Neural_Network")
     model_uri = f"runs:/{run_id}/model"
     model = mlflow.keras.load_model(model_uri)
     return model
 
 # Giao diện demo
-def demo_mnist_6():
-    st.title("✏️ Dự Đoán Chữ Số MNIST với Pseudo Labeling")
+def demo_mnist_5():
+    st.title("✏️ Dự Đoán Chữ Số MNIST")
 
     # Chọn run_id từ MLflow
     st.subheader("1. Chọn Mô Hình Đã Huấn Luyện")
-    mlflow.set_experiment("MNIST_Pseudo_Labeling")
+    mlflow.set_experiment("MNIST_Neural_Network")
     runs = mlflow.search_runs()
     if runs.empty:
         st.error("Không tìm thấy mô hình nào trong MLflow. Vui lòng huấn luyện mô hình trước!")
@@ -131,17 +131,17 @@ def demo_mnist_6():
         )
         st.plotly_chart(fig, use_container_width=True)
 
-        # Hiển thị thông tin mô hình từ MLflow
-        st.subheader("4. Thông Tin Mô Hình (Tham Khảo)")
+        # So sánh độ tin cậy với hiệu suất mô hình (chỉ làm tham khảo)
+        st.subheader("4. Hiệu Suất Mô Hình (Tham Khảo)")
         run_data = runs[runs['run_id'] == run_id].iloc[0]
+        train_acc = run_data['metrics.train_accuracy'] * 100 if 'metrics.train_accuracy' in run_data else None
+        val_acc = run_data['metrics.val_accuracy'] * 100 if 'metrics.val_accuracy' in run_data else None
         test_acc = run_data['metrics.test_accuracy'] * 100 if 'metrics.test_accuracy' in run_data else None
-        iterations = run_data['metrics.iterations_completed'] if 'metrics.iterations_completed' in run_data else None
-        final_samples = run_data['params.final_labeled_samples'] if 'params.final_labeled_samples' in run_data else None
 
-        st.write(f"**Thông tin từ MLflow:**")
-        if test_acc: st.write(f"- Độ chính xác trên tập test: {test_acc:.2f}%")
-        if iterations: st.write(f"- Số vòng lặp Pseudo Labeling: {iterations}")
-        if final_samples: st.write(f"- Số mẫu được gán nhãn cuối cùng: {final_samples}")
+        st.write(f"**Độ chính xác của mô hình (theo MLflow):**")
+        if train_acc: st.write(f"- Train: {train_acc:.2f}%")
+        if val_acc: st.write(f"- Validation: {val_acc:.2f}%")
+        if test_acc: st.write(f"- Test: {test_acc:.2f}%")
         
         if test_acc:
             max_prob = max(probabilities)
@@ -153,4 +153,4 @@ def demo_mnist_6():
         st.write("Vui lòng vẽ hoặc tải ảnh trước khi dự đoán.")
 
 if __name__ == "__main__":
-    demo_mnist_6()
+    demo_mnist_5()
