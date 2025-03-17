@@ -201,7 +201,7 @@ def train_mnist_pseudo_labeling(X_full, y_full):
             # Thêm biến theo dõi
             labeled_counts = [len(X_labeled)]  # Số mẫu đã gán nhãn (tích lũy)
             unlabeled_counts = [len(X_unlabeled)]  # Số mẫu chưa gán nhãn
-            cumulative_correct_count = 0  # Tổng số nhãn đúng tích lũy
+            cumulative_correct_count = 0  # Tổng số nhãn đúng tích lũy trong Pseudo Labeling
             cumulative_correct_counts = [cumulative_correct_count]  # Danh sách tổng tích lũy
             confidence_means = []
             correct_ratios = []
@@ -215,7 +215,7 @@ def train_mnist_pseudo_labeling(X_full, y_full):
             progress_container = st.empty()
             
             # Giai đoạn 1: Gán nhãn giả lặp lại
-            while iteration < max_iterations:  # Đảm bảo lặp đủ max_iterations
+            while iteration < max_iterations:
                 with progress_container.container():
                     st.write(f"**Vòng lặp Gán Nhãn {iteration + 1}/{max_iterations}**")
                     st.write(f"Số mẫu huấn luyện hiện tại: {len(X_current)}")
@@ -260,13 +260,13 @@ def train_mnist_pseudo_labeling(X_full, y_full):
                     correct_and_confident_indices = np.where((confidences >= threshold) & (pseudo_labels == y_unlabeled_true))[0]
                     
                     # Tính số lượng và tỷ lệ nhãn giả đúng
-                    correct_count = len(correct_and_confident_indices)  # Số mẫu vượt ngưỡng và đúng
-                    cumulative_correct_count += correct_count  # Tích lũy số nhãn đúng
-                    cumulative_correct_counts.append(min(cumulative_correct_count, len(X_train)))  # Giới hạn tối đa
+                    correct_count = len(correct_and_confident_indices) if len(correct_and_confident_indices) > 0 else 0
+                    cumulative_correct_count += correct_count  # Tích lũy số nhãn đúng trong Pseudo Labeling
+                    cumulative_correct_counts.append(cumulative_correct_count)
                     correct_ratio = correct_count / len(pseudo_labels) if len(pseudo_labels) > 0 else 0
                     correct_ratios.append(correct_ratio)
                     st.write(f"Số lượng mẫu gán đúng trong vòng lặp này: {correct_count}")
-                    st.write(f"Tổng số mẫu gán đúng tích lũy: {cumulative_correct_count}")
+                    st.write(f"Tổng số mẫu gán đúng tích lũy (Pseudo Labeling): {cumulative_correct_count}")
                     st.write(f"Tỷ lệ nhãn giả đúng trong vòng lặp này: {correct_ratio:.4f}")
 
                     # Cảnh báo nếu tỷ lệ nhãn giả đúng thấp
@@ -279,7 +279,7 @@ def train_mnist_pseudo_labeling(X_full, y_full):
                         labeled_counts.append(len(X_current))
                         unlabeled_counts.append(len(X_unlabeled))
                         iteration += 1
-                        continue  # Tiếp tục vòng lặp mà không cập nhật dữ liệu
+                        continue
 
                     X_pseudo = X_unlabeled[correct_and_confident_indices]
                     y_pseudo = pseudo_labels[correct_and_confident_indices]
@@ -310,6 +310,9 @@ def train_mnist_pseudo_labeling(X_full, y_full):
             st.success(f"Đã hoàn thành gán nhãn sau {iteration} vòng lặp.")
             st.write(f"Tổng số mẫu gán đúng trên toàn bộ tập train: {final_correct_count} / {len(y_train)}")
             st.write(f"Tỷ lệ gán đúng cuối cùng: {final_accuracy:.4f}")
+
+            # Cập nhật final_correct_counts để hiển thị final_correct_count ở vòng lặp cuối
+            final_correct_counts = [0] * (len(cumulative_correct_counts) - 1) + [final_correct_count]
 
             # Giai đoạn 2: Huấn luyện bổ sung (nếu đạt 100% chính xác)
             if final_accuracy == 1.0:
@@ -354,8 +357,15 @@ def train_mnist_pseudo_labeling(X_full, y_full):
 
             # Biểu đồ số lượng mẫu gán đúng (tích lũy)
             fig_correct = go.Figure()
-            fig_correct.add_trace(go.Scatter(x=list(range(len(cumulative_correct_counts))), y=cumulative_correct_counts, mode='lines+markers', name='Tổng số mẫu gán đúng (tích lũy)'))
-            fig_correct.update_layout(title="Tổng số lượng mẫu gán đúng (tích lũy) qua các vòng lặp", xaxis_title="Vòng lặp", yaxis_title="Số lượng", height=400)
+            fig_correct.add_trace(go.Scatter(x=list(range(len(cumulative_correct_counts))), y=cumulative_correct_counts, mode='lines+markers', name='Tích lũy trong Pseudo Labeling'))
+            fig_correct.add_trace(go.Scatter(x=list(range(len(final_correct_counts))), y=final_correct_counts, mode='lines+markers', name='Trên toàn bộ tập train', line=dict(dash='dash')))
+            fig_correct.update_layout(
+                title="Tổng số lượng mẫu gán đúng qua các vòng lặp",
+                xaxis_title="Vòng lặp",
+                yaxis_title="Số lượng",
+                yaxis_range=[0, len(X_train)],  # Tự động điều chỉnh dựa trên len(X_train)
+                height=400
+            )
             st.plotly_chart(fig_correct, use_container_width=True)
 
             # Log MLflow
@@ -381,7 +391,8 @@ def train_mnist_pseudo_labeling(X_full, y_full):
                 "final_val_accuracy": float(final_val_acc),
                 "final_test_accuracy": float(final_test_acc),
                 "final_train_accuracy": float(final_accuracy),
-                "total_correct_pseudo_labels": float(cumulative_correct_count)  # Sử dụng tổng tích lũy
+                "total_correct_pseudo_labels": float(cumulative_correct_count),
+                "final_correct_count": float(final_correct_count)
             })
 
             # Hiển thị thông tin MLflow
@@ -394,9 +405,10 @@ def train_mnist_pseudo_labeling(X_full, y_full):
                 'params.max_iterations', 'params.threshold',
                 'params.labeling_iterations', 'params.total_iterations', 'params.log_time',
                 'metrics.final_val_accuracy', 'metrics.final_test_accuracy', 'metrics.final_train_accuracy',
-                'metrics.total_correct_pseudo_labels'
+                'metrics.total_correct_pseudo_labels', 'metrics.final_correct_count'
             ]
             for col in expected_columns:
                 if col not in runs.columns:
                     runs[col] = None
             st.dataframe(runs[['run_id'] + expected_columns])
+

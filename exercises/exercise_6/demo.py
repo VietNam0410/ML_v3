@@ -159,6 +159,3 @@ def demo_mnist_6():
                 st.info("**Ghi chú**: Độ tin cậy thấp hơn nhiều so với độ chính xác trên tập test. Ảnh đầu vào có thể không rõ ràng.")
     elif input_image is None:
         st.write("Vui lòng vẽ hoặc tải ảnh trước khi dự đoán.")
-
-if __name__ == "__main__":
-    demo_mnist_6()

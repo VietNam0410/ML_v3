@@ -13,7 +13,8 @@ def view_log_6():
     os.environ["MLFLOW_TRACKING_PASSWORD"] = "c9db6bdcca1dfed76d2af2cdb15a9277e6732d6b"
 
     # Lấy danh sách các run từ MLflow (experiment mới)
-    experiment = mlflow.get_experiment_by_name("MNIST_Pseudo_Labeling_Train")
+    client = mlflow.tracking.MlflowClient()
+    experiment = client.get_experiment_by_name("MNIST_Pseudo_Labeling_Train")
     if experiment is None:
         st.error("Không tìm thấy experiment 'MNIST_Pseudo_Labeling_Train' trong MLflow.")
         return
@@ -34,15 +35,15 @@ def view_log_6():
         'metrics.final_val_accuracy', 'metrics.final_test_accuracy', 'metrics.final_train_accuracy',
         'metrics.total_correct_pseudo_labels'
     ]
-    for col in expected_columns:
-        if col not in runs.columns:
-            runs[col] = None
 
-    # Chuyển đổi dữ liệu để lọc và hiển thị
-    df_runs = runs[['run_id', 'params.log_time'] + expected_columns].copy()
-    for col in df_runs.columns:
-        if col.startswith('params.') or col.startswith('metrics.'):
-            df_runs[col] = pd.to_numeric(df_runs[col], errors='coerce')
+    # Tạo DataFrame với các cột hợp lệ
+    valid_columns = ['run_id', 'params.log_time'] + [col for col in expected_columns if col in runs.columns]
+    df_runs = runs[valid_columns].copy()
+
+    # Chuyển đổi các cột params và metrics thành số, chỉ áp dụng cho cột hợp lệ
+    numeric_columns = [col for col in df_runs.columns if col.startswith('params.') or col.startswith('metrics.')]
+    for col in numeric_columns:
+        df_runs[col] = pd.to_numeric(df_runs[col], errors='coerce').fillna(0)  # Đảm bảo giá trị NaN được thay bằng 0
 
     # Thêm bộ lọc
     st.subheader("Lọc Danh Sách Run")
@@ -52,24 +53,24 @@ def view_log_6():
     with col2:
         min_train_acc = st.slider("Độ chính xác Train tối thiểu", min_value=0.0, max_value=1.0, value=0.0, step=0.01)
 
-    # Lọc dữ liệu dựa trên bộ lọc
-    filtered_runs = df_runs[
+    # Lọc dữ liệu dựa trên bộ lọc một cách an toàn
+    filtered_runs = df_runs.loc[
         (df_runs['metrics.final_val_accuracy'].fillna(0) >= min_val_acc) &
         (df_runs['metrics.final_train_accuracy'].fillna(0) >= min_train_acc)
-    ]
+    ].copy()
 
     # Hiển thị danh sách các run đã lọc
     st.subheader("Danh Sách Các Run Đã Lưu (Đã Lọc)")
     if filtered_runs.empty:
         st.warning("Không có run nào khớp với bộ lọc. Vui lòng điều chỉnh bộ lọc.")
     else:
-        st.dataframe(filtered_runs)
+        st.dataframe(filtered_runs)  # Đảm bảo filtered_runs là DataFrame hợp lệ
 
     # Chọn một run để xem chi tiết
     run_options = filtered_runs['run_id'].tolist()
-    selected_run = st.selectbox("Chọn một run để xem chi tiết:", run_options, index=0 if not filtered_runs.empty else None)
-    if selected_run and not filtered_runs.empty:
-        run_info = mlflow.get_run(selected_run)
+    selected_run = st.selectbox("Chọn một run để xem chi tiết:", run_options, index=0 if run_options else None)
+    if selected_run and run_options:
+        run_info = client.get_run(selected_run)
 
         # Hiển thị thông tin chi tiết về run
         st.subheader(f"Thông Tin Run Được Chọn: {selected_run}")
@@ -123,3 +124,6 @@ def view_log_6():
             st.write(f"- Thời gian huấn luyện: {run_info.data.params.get('log_time', 'N/A')}")
         else:
             st.warning("Không có tham số nào được ghi lại cho run này.")
+
+if __name__ == "__main__":
+    view_log_6()
