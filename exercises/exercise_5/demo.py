@@ -64,7 +64,7 @@ def demo_mnist_5():
 
     # Xử lý đầu vào
     if input_method == "Vẽ tay":
-        st.write("Vẽ chữ số (kích thước 280x280, sẽ được thu nhỏ về 28x28):")
+        st.write("Vẽ chữ số (kích thước 400x400, sẽ được thu nhỏ về 28x28):")
         if 'reset_canvas' not in st.session_state:
             st.session_state['reset_canvas'] = False
 
@@ -73,8 +73,8 @@ def demo_mnist_5():
             stroke_width=20,
             stroke_color="white",
             background_color="black",
-            height=280,  
-            width=280,   
+            height=400,  # Giữ kích thước lớn từ yêu cầu trước
+            width=400,
             drawing_mode="freedraw",
             key="canvas",
             update_streamlit=not st.session_state['reset_canvas']
@@ -103,7 +103,7 @@ def demo_mnist_5():
         st.subheader("3. Kết Quả Dự Đoán")
         prediction = model.predict(input_image)
         predicted_digit = np.argmax(prediction)
-        
+
         # Lấy hiệu suất mô hình từ MLflow
         run_data = runs[runs['run_id'] == run_id].iloc[0]
         test_acc = run_data['metrics.test_accuracy'] * 100 if 'metrics.test_accuracy' in run_data else None
@@ -111,34 +111,31 @@ def demo_mnist_5():
         # Hiển thị chữ số dự đoán
         st.write(f"**Dự đoán**: Chữ số **{predicted_digit}**")
 
-        # Hiển thị độ tin cậy cho tất cả các chữ số
-        st.write("**Độ tin cậy cho từng chữ số:**")
+        # Điều chỉnh độ tin cậy dựa trên test accuracy
         probabilities = prediction[0] * 100  # Chuyển sang phần trăm
         if test_acc:
             # Giới hạn độ tin cậy tối đa dựa trên test accuracy
-            max_confidence = min(max(probabilities), test_acc + 5)
+            max_confidence = min(max(probabilities), test_acc)
             probabilities = np.clip(probabilities, 0, max_confidence)
-            if max(probabilities) == test_acc + 5:
-                st.warning(f"Độ tin cậy đã được điều chỉnh để không vượt quá {test_acc + 5:.2f}% dựa trên độ chính xác tập test ({test_acc:.2f}%).")
+            if max(probabilities) == test_acc:
+                st.warning(f"Độ tin cậy đã được điều chỉnh để không vượt quá {test_acc:.2f}% (độ chính xác trên tập test).")
 
-        # Hiển thị danh sách độ tin cậy
-        for i, prob in enumerate(probabilities):
-            st.write(f"- Chữ số {i}: {prob:.2f}%")
-
-        # Biểu đồ xác suất
+        # Biểu đồ xác suất với độ tin cậy hiển thị trên cột
         fig = go.Figure()
         fig.add_trace(go.Bar(
             x=list(range(10)),
             y=probabilities,
             marker_color=['blue' if i != predicted_digit else 'red' for i in range(10)],  # Đánh dấu chữ số dự đoán bằng màu đỏ
-            text=[f"{x:.1f}%" for x in probabilities],
-            textposition='auto'
+            text=[f"{x:.2f}%" for x in probabilities],  # Hiển thị giá trị trên cột
+            textposition='auto',
+            width=0.5  # Điều chỉnh độ rộng cột để giống biểu đồ trong hình
         ))
         fig.update_layout(
-            title="Xác Suất Dự Đoán Cho Từng Chữ Số",
+            title=f"Mức độ tin cậy: {probabilities[predicted_digit]:.2f}%",
             xaxis_title="Chữ số (0-9)",
-            yaxis_title="Độ tin cậy (%)",
-            height=400
+            yaxis_title="Độ tin cậy",
+            height=400,
+            yaxis=dict(range=[0, 100])  # Đặt giới hạn trục y từ 0 đến 100
         )
         st.plotly_chart(fig, use_container_width=True)
 
