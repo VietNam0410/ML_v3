@@ -27,6 +27,11 @@ from exercises.exercise_5.introduce import introduce_mnist as introduce_mnist_5
 from exercises.exercise_5.train import train_mnist as train_mnist_5
 from exercises.exercise_5.demo import demo_mnist_5
 from exercises.exercise_5.view import view_log_5
+# Bài 6
+from exercises.exercise_6.introduce import introduce_mnist as introduce_mnist_6
+from exercises.exercise_6.train import train_mnist_pseudo_labeling
+from exercises.exercise_6.demo import demo_mnist_6
+from exercises.exercise_6.view import view_log_6
 from tensorflow.keras.datasets import mnist
 
 # Map bài tập sang tiêu đề
@@ -35,7 +40,8 @@ exercise_titles = {
     'Exercise 2: MNIST Handwritten Digit Recognition': "MNIST Handwritten Digit Recognition",
     'Exercise 3: Clustering Algorithms (K-Means & DBSCAN)': "Clustering Algorithms (K-Means & DBSCAN)",
     'Exercise 4: Dimensionality Reduction (PCA & t-SNE)': "Dimensionality Reduction (PCA & t-SNE)",
-    'Exercise 5: Neural Network Optimization': "Neural Network Optimization"
+    'Exercise 5: Neural Network Optimization': "Neural Network Optimization",
+    'Exercise 6: Pseudo Labeling with Neural Network': "Pseudo Labeling with Neural Network"  # Thêm bài 6
 }
 
 # Đặt tiêu đề trang ngay từ đầu (Bài 1 mặc định)
@@ -89,7 +95,7 @@ def display_exercise_2():
     if X_full is None or y_full is None:
         st.error('Dữ liệu MNIST không khả dụng. Vui lòng kiểm tra kết nối.')
         return
-    tab1, tab2, tab3, tab4 ,tab5= st.tabs(['Giới Thiệu Dữ Liệu', 'Thông Tin', 'Huấn Luyện Mô Hình', 'Thử Nghiệm', 'Xem Logs'])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(['Giới Thiệu Dữ Liệu', 'Thông Tin', 'Huấn Luyện Mô Hình', 'Thử Nghiệm', 'Xem Logs'])
     with tab1:
         preprocess_mnist_2(X_full, y_full)
     with tab2:
@@ -139,7 +145,7 @@ def display_exercise_5():
     if X_full is None or y_full is None:
         st.error('Dữ liệu MNIST không khả dụng. Vui lòng kiểm tra kết nối.')
         return
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(['Giới Thiệu Dữ Liệu', 'Thông Tin', 'Huấn Luyện Mô Hình','Thử Nghiệm', 'Xem Logs'])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(['Giới Thiệu Dữ Liệu', 'Thông Tin', 'Huấn Luyện Mô Hình', 'Thử Nghiệm', 'Xem Logs'])
     with tab1:
         introduce_mnist_5(X_full, y_full)
     # with tab2:
@@ -150,6 +156,22 @@ def display_exercise_5():
         demo_mnist_5()
     with tab5:
         view_log_5()
+
+def display_exercise_6():
+    with st.spinner('Đang chuẩn bị dữ liệu cho Bài 6...'):
+        X_full, y_full = load_mnist_data()
+    if X_full is None or y_full is None:
+        st.error('Dữ liệu MNIST không khả dụng. Vui lòng kiểm tra kết nối.')
+        return
+    tab1, tab2, tab3, tab4 = st.tabs(['Giới Thiệu Dữ Liệu', 'Huấn Luyện Mô Hình', 'Thử Nghiệm', 'Xem Logs'])
+    with tab1:
+        introduce_mnist_6(X_full, y_full)
+    with tab2:
+        train_mnist_pseudo_labeling(X_full, y_full)
+    with tab3:
+        demo_mnist_6()
+    with tab4:
+        view_log_6()
 
 # Logic hiển thị chính
 def display_exercise():
@@ -163,6 +185,8 @@ def display_exercise():
         display_exercise_4()
     elif selected_exercise == 'Exercise 5: Neural Network Optimization':
         display_exercise_5()
+    elif selected_exercise == 'Exercise 6: Pseudo Labeling with Neural Network':
+        display_exercise_6()
 
 if __name__ == '__main__':
     display_exercise()
