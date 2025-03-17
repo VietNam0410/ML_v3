@@ -73,7 +73,7 @@ def demo_mnist_5():
             stroke_width=20,
             stroke_color="white",
             background_color="black",
-            height=400,  # Giữ kích thước lớn từ yêu cầu trước
+            height=400,
             width=400,
             drawing_mode="freedraw",
             key="canvas",
@@ -104,15 +104,13 @@ def demo_mnist_5():
         prediction = model.predict(input_image)
         predicted_digit = np.argmax(prediction)
 
-        # Lấy hiệu suất mô hình từ MLflow
-        run_data = runs[runs['run_id'] == run_id].iloc[0]
-        test_acc = run_data['metrics.test_accuracy'] * 100 if 'metrics.test_accuracy' in run_data else None
-
-        # Hiển thị chữ số dự đoán
+        # Hiển thị chữ số dự đoán và độ tin cậy rõ ràng
+        confidence = prediction[0][predicted_digit] * 100
         st.write(f"**Dự đoán**: Chữ số **{predicted_digit}**")
+        st.write(f"**Độ tin cậy cao nhất**: {confidence:.2f}%")
 
-        # Điều chỉnh độ tin cậy dựa trên test accuracy
-        probabilities = prediction[0] * 100  # Chuyển sang phần trăm
+        # Hiển thị độ tin cậy cho tất cả các chữ số trên biểu đồ
+        probabilities = prediction[0] * 100  # Chuyển sang phần trăm (không giới hạn)
 
         # Biểu đồ xác suất với độ tin cậy hiển thị trên cột
         fig = go.Figure()
@@ -122,21 +120,23 @@ def demo_mnist_5():
             marker_color=['blue' if i != predicted_digit else 'red' for i in range(10)],  # Đánh dấu chữ số dự đoán bằng màu đỏ
             text=[f"{x:.2f}%" for x in probabilities],  # Hiển thị giá trị trên cột
             textposition='auto',
-            width=0.5  # Điều chỉnh độ rộng cột để giống biểu đồ trong hình
+            width=0.5  # Điều chỉnh độ rộng cột
         ))
         fig.update_layout(
-            title=f"Mức độ tin cậy: {probabilities[predicted_digit]:.2f}%",
+            title=f"Độ tin cậy dự đoán: {confidence:.2f}%",
             xaxis_title="Chữ số (0-9)",
-            yaxis_title="Độ tin cậy",
+            yaxis_title="Độ tin cậy (%)",
             height=400,
             yaxis=dict(range=[0, 100])  # Đặt giới hạn trục y từ 0 đến 100
         )
         st.plotly_chart(fig, use_container_width=True)
 
-        # So sánh độ tin cậy với hiệu suất mô hình
-        st.subheader("4. So Sánh Với Hiệu Suất Mô Hình")
+        # So sánh độ tin cậy với hiệu suất mô hình (chỉ làm tham khảo)
+        st.subheader("4. Hiệu Suất Mô Hình (Tham Khảo)")
+        run_data = runs[runs['run_id'] == run_id].iloc[0]
         train_acc = run_data['metrics.train_accuracy'] * 100 if 'metrics.train_accuracy' in run_data else None
         val_acc = run_data['metrics.val_accuracy'] * 100 if 'metrics.val_accuracy' in run_data else None
+        test_acc = run_data['metrics.test_accuracy'] * 100 if 'metrics.test_accuracy' in run_data else None
 
         st.write(f"**Độ chính xác của mô hình (theo MLflow):**")
         if train_acc: st.write(f"- Train: {train_acc:.2f}%")
