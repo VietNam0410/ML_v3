@@ -8,6 +8,7 @@ import mlflow.keras
 import plotly.graph_objects as go
 from PIL import Image
 from streamlit_drawable_canvas import st_canvas
+from datetime import datetime
 
 # Thiết lập MLflow
 DAGSHUB_MLFLOW_URI = "https://dagshub.com/VietNam0410/ML_v3.mlflow"
@@ -30,18 +31,18 @@ def preprocess_image(image):
 # Hàm tải mô hình từ MLflow
 @st.cache_resource
 def load_trained_model(run_id):
-    mlflow.set_experiment("MNIST_Neural_Network")
-    model_uri = f"runs:/{run_id}/model"
+    mlflow.set_experiment("MNIST_Pseudo_Labeling_Train")  # Sử dụng experiment mới
+    model_uri = f"runs:/{run_id}/final_model"  # Đường dẫn mô hình trong experiment mới
     model = mlflow.keras.load_model(model_uri)
     return model
 
 # Giao diện demo
-def demo_mnist_5():
-    st.title("✏️ Dự Đoán Chữ Số MNIST")
+def demo_mnist_6():
+    st.title("✏️ Dự Đoán Chữ Số MNIST với Pseudo Labeling")
 
     # Chọn run_id từ MLflow
     st.subheader("1. Chọn Mô Hình Đã Huấn Luyện")
-    mlflow.set_experiment("MNIST_Neural_Network")
+    mlflow.set_experiment("MNIST_Pseudo_Labeling_Train")  # Sử dụng experiment mới
     runs = mlflow.search_runs()
     if runs.empty:
         st.error("Không tìm thấy mô hình nào trong MLflow. Vui lòng huấn luyện mô hình trước!")
@@ -52,8 +53,12 @@ def demo_mnist_5():
     run_id = run_options[selected_run]
     
     # Tải mô hình
-    model = load_trained_model(run_id)
-    st.success(f"Đã tải mô hình từ Run ID: {run_id}")
+    try:
+        model = load_trained_model(run_id)
+        st.success(f"Đã tải mô hình từ Run ID: {run_id}")
+    except Exception as e:
+        st.error(f"Không thể tải mô hình từ Run ID {run_id}. Lỗi: {str(e)}")
+        return
 
     # Chọn phương thức nhập liệu
     st.subheader("2. Nhập Chữ Số")
@@ -110,7 +115,7 @@ def demo_mnist_5():
         st.write(f"**Độ tin cậy cao nhất**: {confidence:.2f}%")
 
         # Hiển thị độ tin cậy cho tất cả các chữ số trên biểu đồ
-        probabilities = prediction[0] * 100  # Chuyển sang phần trăm (không giới hạn)
+        probabilities = prediction[0] * 100  # Chuyển sang phần trăm
 
         # Biểu đồ xác suất với độ tin cậy hiển thị trên cột
         fig = go.Figure()
@@ -131,18 +136,21 @@ def demo_mnist_5():
         )
         st.plotly_chart(fig, use_container_width=True)
 
-        # So sánh độ tin cậy với hiệu suất mô hình (chỉ làm tham khảo)
-        st.subheader("4. Hiệu Suất Mô Hình (Tham Khảo)")
+        # Hiển thị thông tin mô hình từ MLflow
+        st.subheader("4. Thông Tin Mô Hình (Tham Khảo)")
         run_data = runs[runs['run_id'] == run_id].iloc[0]
-        train_acc = run_data['metrics.train_accuracy'] * 100 if 'metrics.train_accuracy' in run_data else None
-        val_acc = run_data['metrics.val_accuracy'] * 100 if 'metrics.val_accuracy' in run_data else None
-        test_acc = run_data['metrics.test_accuracy'] * 100 if 'metrics.test_accuracy' in run_data else None
+        test_acc = run_data['metrics.final_test_accuracy'] * 100 if 'metrics.final_test_accuracy' in run_data else None
+        iterations = run_data['params.labeling_iterations'] if 'params.labeling_iterations' in run_data else None
+        num_samples = run_data['params.num_samples'] if 'params.num_samples' in run_data else None
 
-        st.write(f"**Độ chính xác của mô hình (theo MLflow):**")
-        if train_acc: st.write(f"- Train: {train_acc:.2f}%")
-        if val_acc: st.write(f"- Validation: {val_acc:.2f}%")
-        if test_acc: st.write(f"- Test: {test_acc:.2f}%")
-        
+        st.write(f"**Thông tin từ MLflow:**")
+        if test_acc:
+            st.write(f"- Độ chính xác trên tập test: {test_acc:.2f}%")
+        if iterations:
+            st.write(f"- Số vòng lặp Pseudo Labeling: {iterations}")
+        if num_samples:
+            st.write(f"- Số mẫu huấn luyện: {num_samples}")
+
         if test_acc:
             max_prob = max(probabilities)
             if max_prob > test_acc + 10:
@@ -153,4 +161,4 @@ def demo_mnist_5():
         st.write("Vui lòng vẽ hoặc tải ảnh trước khi dự đoán.")
 
 if __name__ == "__main__":
-    demo_mnist_5()
+    demo_mnist_6()
