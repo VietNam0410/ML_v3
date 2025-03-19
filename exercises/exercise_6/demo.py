@@ -120,15 +120,6 @@ def demo_mnist_6():
             update_streamlit=not st.session_state['reset_canvas']
         )
 
-        if st.button("Xóa bảng vẽ"):
-            st.session_state['reset_canvas'] = True
-            st.session_state['input_image'] = None
-            st.session_state['last_processed_image'] = None
-            st.session_state['can_predict'] = False
-            st.rerun()
-        else:
-            st.session_state['reset_canvas'] = False
-
         if canvas_result.image_data is not None:
             img_array = canvas_result.image_data.copy()
             img = Image.fromarray(img_array.astype('uint8')).convert('L')

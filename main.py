@@ -23,7 +23,7 @@ from exercises.exercise_4.train import dimensionality_reduction_app
 from exercises.exercise_4.demo import view_logs_app
 # Bài 5
 from exercises.exercise_5.introduce import introduce_mnist as introduce_mnist_5
-# from exercises.exercise_5.theory import display_algorithm_info as display_algorithm_info_5
+from exercises.exercise_5.theory import display_neural_network_theory as display_algorithm_info_5
 from exercises.exercise_5.train import train_mnist as train_mnist_5
 from exercises.exercise_5.demo import demo_mnist_5
 from exercises.exercise_5.view import view_log_5
@@ -148,8 +148,8 @@ def display_exercise_5():
     tab1, tab2, tab3, tab4, tab5 = st.tabs(['Giới Thiệu Dữ Liệu', 'Thông Tin', 'Huấn Luyện Mô Hình', 'Thử Nghiệm', 'Xem Logs'])
     with tab1:
         introduce_mnist_5(X_full, y_full)
-    # with tab2:
-    #     display_algorithm_info_5()
+    with tab2:
+        display_algorithm_info_5()
     with tab3:
         train_mnist_5(X_full, y_full)
     with tab4:

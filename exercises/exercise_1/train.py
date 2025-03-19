@@ -11,6 +11,7 @@ from common.utils import load_data
 import os
 import dagshub
 import datetime
+import time  # Thêm để mô phỏng tiến độ
 
 # Hàm khởi tạo MLflow
 def mlflow_input():
@@ -92,11 +93,24 @@ def train_model():
     train_size = remaining_size - valid_size
 
     if st.button("Chia dữ liệu"):
+        # Tạo thanh tiến trình
+        progress_text = st.empty()
+        progress_bar = st.progress(0)
+        
         with st.spinner("Đang chia dữ liệu..."):
+            # Bước 1: Chia tập train/test (50%)
+            progress_text.text("Đang chia tập train/test... (Bước 1/2)")
             X_temp, X_test, y_temp, y_test = train_test_split(X, y, test_size=test_size, random_state=42)
+            time.sleep(0.5)  # Mô phỏng thời gian xử lý
+            progress_bar.progress(50)
+
+            # Bước 2: Chia tập train/valid (100%)
+            progress_text.text("Đang chia tập train/valid... (Bước 2/2)")
             X_train, X_valid, y_train, y_valid = train_test_split(
                 X_temp, y_temp, test_size=valid_size / remaining_size, random_state=42
             )
+            time.sleep(0.5)  # Mô phỏng thời gian xử lý
+            progress_bar.progress(100)
 
             st.write(f"Tập huấn luyện: {len(X_train)} mẫu ({train_size*100:.1f}%)")
             st.write(f"Tập validation: {len(X_valid)} mẫu ({valid_size*100:.1f}%)")
@@ -159,6 +173,10 @@ def train_model():
                 st.error("Tổng tỷ lệ valid phải bằng 100%. Vui lòng điều chỉnh.")
                 return
 
+            # Tạo thanh tiến trình
+            progress_text = st.empty()
+            progress_bar = st.progress(0)
+
             X_train = st.session_state['X_train']
             y_train = st.session_state['y_train']
             with st.spinner("Đang tạo Cross Validation Folds..."):
@@ -166,8 +184,12 @@ def train_model():
                 fold_configs = {}
                 fold_indices = list(kf.split(X_train))
 
+                # Chia tiến độ thành các bước dựa trên số fold
+                progress_per_fold = 100 // k_folds
+
                 for fold, (train_idx, valid_idx) in enumerate(fold_indices):
                     fold_num = fold + 1
+                    progress_text.text(f"Đang tạo Fold {fold_num}/{k_folds}... (Bước {fold_num}/{k_folds})")
                     X_remaining = X_train.iloc[train_idx.tolist() + valid_idx.tolist()]
                     y_remaining = y_train.iloc[train_idx.tolist() + valid_idx.tolist()]
                     valid_size_fold = valid_sizes[fold] / 100
@@ -182,6 +204,10 @@ def train_model():
                         "X_valid": X_valid_fold,
                         "y_valid": y_valid_fold
                     }
+
+                    # Cập nhật tiến độ
+                    progress_bar.progress(min((fold + 1) * progress_per_fold, 100))
+                    time.sleep(0.5)  # Mô phỏng thời gian xử lý
 
                 st.session_state['fold_configs'] = fold_configs
                 st.session_state['valid_sizes'] = valid_sizes
@@ -229,6 +255,10 @@ def train_model():
         model_params = {"degree": degree, "random_state": 42}
 
     if st.button("Huấn luyện mô hình"):
+        # Tạo thanh tiến trình
+        progress_text = st.empty()
+        progress_bar = st.progress(0)
+
         with st.spinner("Đang huấn luyện mô hình..."):
             if use_cv and 'fold_configs' in st.session_state:
                 X_train = pd.concat([config['X_train'] for config in st.session_state['fold_configs'].values()])
@@ -243,7 +273,8 @@ def train_model():
                 y_valid = st.session_state['y_valid']
                 train_source = "Initial split"
 
-            # Khởi tạo và huấn luyện mô hình
+            # Bước 1: Khởi tạo mô hình (20%)
+            progress_text.text("Đang khởi tạo mô hình... (Bước 1/5)")
             if model_choice == "Random Forest":
                 model = RandomForestClassifier(**model_params)
             elif model_choice == "Logistic Regression":
@@ -253,32 +284,48 @@ def train_model():
                     ("poly", PolynomialFeatures(degree=model_params["degree"])),
                     ("logistic", LogisticRegression(random_state=42))
                 ])
+            time.sleep(0.5)  # Mô phỏng thời gian xử lý
+            progress_bar.progress(20)
 
+            # Bước 2: Huấn luyện mô hình (50%)
+            progress_text.text("Đang huấn luyện mô hình... (Bước 2/5)")
             model.fit(X_train, y_train)
+            time.sleep(0.5)  # Mô phỏng thời gian xử lý
+            progress_bar.progress(50)
+
+            # Bước 3: Đánh giá mô hình (70%)
+            progress_text.text("Đang đánh giá mô hình... (Bước 3/5)")
             train_score = model.score(X_train, y_train)
             valid_score = model.score(X_valid, y_valid)
+            time.sleep(0.5)  # Mô phỏng thời gian xử lý
+            progress_bar.progress(70)
 
-            st.write(f"Mô hình: {model_choice}")
-            st.write(f"Nguồn dữ liệu: {train_source}")
-            st.write(f"Tham số: {model_params}")
-            st.write(f"Độ chính xác train: {train_score:.4f}")
-            st.write(f"Độ chính xác valid: {valid_score:.4f}")
-
-            # Log mô hình
+            # Bước 4: Log parameters và metrics (90%)
+            progress_text.text("Đang log parameters và metrics lên MLflow... (Bước 4/5)")
             with mlflow.start_run(run_name=f"{model_choice}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"):
                 mlflow.log_params(model_params)
                 mlflow.log_param("train_source", train_source)
                 mlflow.log_metric("train_accuracy", train_score)
                 mlflow.log_metric("valid_accuracy", valid_score)
+                time.sleep(0.5)  # Mô phỏng thời gian xử lý
+                progress_bar.progress(90)
+
+                # Bước 5: Log mô hình (100%)
+                progress_text.text("Đang log mô hình lên MLflow... (Bước 5/5)")
                 mlflow.sklearn.log_model(model, "model")
                 run_id = mlflow.active_run().info.run_id
                 experiment_id = mlflow.get_experiment_by_name(experiment_name).experiment_id
                 run_url = f"{mlflow_uri}/#/experiments/{experiment_id}/runs/{run_id}"
+                time.sleep(0.5)  # Mô phỏng thời gian xử lý
+                progress_bar.progress(100)
+
+                st.write(f"Mô hình: {model_choice}")
+                st.write(f"Nguồn dữ liệu: {train_source}")
+                st.write(f"Tham số: {model_params}")
+                st.write(f"Độ chính xác train: {train_score:.4f}")
+                st.write(f"Độ chính xác valid: {valid_score:.4f}")
                 st.success(f"Đã huấn luyện và log {model_choice} vào MLflow ✅")
                 st.markdown(f"Xem chi tiết: [{run_url}]({run_url})")
 
             st.session_state['model'] = model
             st.info("Mô hình đã được lưu vào session để sử dụng sau.")
-
-if __name__ == "__main__":
-    train_model()

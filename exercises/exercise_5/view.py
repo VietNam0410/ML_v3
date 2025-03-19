@@ -1,6 +1,6 @@
 import streamlit as st
 import mlflow
-import os  # Đảm bảo import os để tránh lỗi
+import os
 
 def view_log_5():
     st.title("📊 Xem Logs Huấn Luyện MNIST")
@@ -25,23 +25,35 @@ def view_log_5():
 
     # Hiển thị danh sách các run
     st.subheader("Danh Sách Các Run Đã Lưu")
-    expected_columns = ['params.n_hidden_layers', 'params.neurons_per_layer', 'params.epochs', 
-                        'params.batch_size', 'params.learning_rate', 'params.activation', 
-                        'params.samples', 'metrics.train_accuracy', 'metrics.test_accuracy',
-                        'metrics.train_loss', 'metrics.test_loss']
+    expected_columns = [
+        'params.run_name',  # Thêm run_name vào bảng
+        'params.n_hidden_layers', 'params.neurons_per_layer', 'params.epochs', 
+        'params.batch_size', 'params.learning_rate', 'params.activation', 
+        'params.samples', 'metrics.train_accuracy', 'metrics.test_accuracy',
+        'metrics.train_loss', 'metrics.test_loss'
+    ]
     for col in expected_columns:
         if col not in runs.columns:
             runs[col] = None
     st.dataframe(runs[['run_id', 'params.log_time'] + expected_columns])
 
-    # Chọn một run để xem chi tiết
-    run_options = runs['run_id'].tolist()
-    selected_run = st.selectbox("Chọn một run để xem chi tiết:", run_options, index=0)
-    run_info = mlflow.get_run(selected_run)
+    # Chọn một run để xem chi tiết (dựa trên run_name thay vì run_id)
+    st.subheader("Xem Chi Tiết Một Run")
+    run_options = {}
+    for _, row in runs.iterrows():
+        run_id = row['run_id']
+        run_name = row.get('params.run_name', 'Không có tên')  # Lấy run_name từ MLflow
+        log_time = row.get('params.log_time', 'Không có thời gian')
+        run_options[f"{run_name} - {log_time}"] = run_id  # Hiển thị run_name - log_time
+    
+    selected_run_display = st.selectbox("Chọn một run để xem chi tiết:", list(run_options.keys()), index=0)
+    selected_run_id = run_options[selected_run_display]  # Lấy run_id tương ứng
+    run_info = mlflow.get_run(selected_run_id)
 
     # Hiển thị thông tin chi tiết về run
     st.subheader("Thông Tin Run Được Chọn")
-    st.write(f"**Run ID**: {selected_run}")
+    st.write(f"**Run Name**: {run_info.data.params.get('run_name', 'Không có tên')}")
+    st.write(f"**Run ID**: {selected_run_id}")
     if run_info.data.metrics:
         # Lấy và định dạng các metric
         train_accuracy = run_info.data.metrics.get('train_accuracy', 'N/A')

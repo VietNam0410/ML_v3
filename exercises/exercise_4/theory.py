@@ -12,9 +12,7 @@ def display_algorithm_info_4():
         st.write("- **n_components**: Số thành phần chính cần giữ lại.")
         st.write("  - Giá trị nhỏ: Giảm chiều mạnh hơn, có thể mất thông tin.")
         st.write("  - Giá trị lớn: Giữ nhiều thông tin hơn, nhưng hiệu quả giảm chiều thấp.")
-        st.write("- **whiten**: Nếu bật (`True`), chuẩn hóa các thành phần để có phương sai bằng 1.")
-        st.write("- **random_state**: Đặt giá trị cố định để đảm bảo kết quả tái lập được.")
-
+       
         st.write("### 3. Các bước thực hiện")
         st.write("1. **Tiền xử lý dữ liệu**: Chuẩn hóa dữ liệu (ví dụ: dùng StandardScaler) để các đặc trưng có trung bình 0 và phương sai 1.")
         st.write("2. **Tính toán ma trận hiệp phương sai**: Xác định mối quan hệ giữa các đặc trưng.")
@@ -37,12 +35,9 @@ def display_algorithm_info_4():
 
         st.write("### 2. Tham số và ý nghĩa")
         st.write("- **n_components**: Số chiều đầu ra (thường là 2 hoặc 3).")
-        st.write("- **perplexity**: Đo lường số lượng láng giềng gần nhất, ảnh hưởng đến cân bằng giữa cục bộ và toàn cục.")
         st.write("  - Giá trị nhỏ: Tập trung vào cấu trúc cục bộ.")
         st.write("  - Giá trị lớn: Tập trung vào cấu trúc toàn cục.")
-        st.write("- **learning_rate**: Tốc độ học, kiểm soát bước cập nhật trong quá trình tối ưu hóa.")
-        st.write("- **random_state**: Đặt giá trị cố định để đảm bảo kết quả tái lập được.")
-
+      
         st.write("### 3. Các bước thực hiện")
         st.write("1. **Tiền xử lý dữ liệu**: Chuẩn hóa dữ liệu để các đặc trưng có cùng thang đo.")
         st.write("2. **Tính khoảng cách**: Xác định khoảng cách giữa các điểm trong không gian cao chiều.")

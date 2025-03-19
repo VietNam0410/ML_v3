@@ -13,9 +13,7 @@ def display_algorithm_info_2():
         st.write("  - `linear`: Kernel tuyến tính, phù hợp với dữ liệu có thể phân tách tuyến tính.")
         st.write("  - `rbf`: Kernel Gaussian Radial Basis Function, phù hợp với dữ liệu phi tuyến tính.")
         st.write("  - `poly`: Kernel đa thức, phù hợp với các bài toán phức tạp hơn.")
-        st.write("- **Probability**: Nếu bật (`True`), mô hình sẽ tính xác suất dự đoán (dùng để lấy độ tin cậy).")
-        st.write("- **Random State**: Đặt giá trị cố định để đảm bảo kết quả tái lập được.")
-
+  
         st.write("### 3. Các bước huấn luyện")
         st.write("1. **Tiền xử lý dữ liệu**: Chuẩn hóa dữ liệu (ví dụ: dùng StandardScaler) để đảm bảo tất cả các đặc trưng có cùng thang đo.")
         st.write("2. **Chọn kernel**: Quyết định loại kernel dựa trên đặc điểm dữ liệu (tuyến tính hay phi tuyến tính).")
@@ -40,7 +38,6 @@ def display_algorithm_info_2():
         st.write("- **Max Depth**: Độ sâu tối đa của cây, kiểm soát độ phức tạp của mô hình.")
         st.write("  - Giá trị nhỏ: Ngăn overfitting nhưng có thể underfit.")
         st.write("  - Giá trị lớn: Mô hình phức tạp hơn, dễ overfitting.")
-        st.write("- **Random State**: Đặt giá trị cố định để đảm bảo kết quả tái lập được.")
 
         st.write("### 3. Các bước huấn luyện")
         st.write("1. **Tiền xử lý dữ liệu**: Không cần chuẩn hóa (Decision Tree không nhạy cảm với thang đo của đặc trưng).")

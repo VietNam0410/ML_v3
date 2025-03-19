@@ -148,18 +148,40 @@ def train_mnist(X_full, y_full):
             st.success(f"**Mất mát (Validation)**: {val_loss:.4f}")
             st.success(f"**Mất mát (Test)**: {test_loss:.4f}")
 
-            # Biểu đồ lịch sử huấn luyện
+            # Biểu đồ lịch sử huấn luyện (giữ nguyên biểu đồ line)
             st.subheader("5. Biểu Đồ Hiệu Suất Theo Epoch")
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=list(range(1, epochs+1)), y=history.history['accuracy'], mode='lines+markers', name='Train Accuracy'))
-            fig.add_trace(go.Scatter(x=list(range(1, epochs+1)), y=history.history['val_accuracy'], mode='lines+markers', name='Validation Accuracy'))
-            fig.add_trace(go.Scatter(x=list(range(1, epochs+1)), y=history.history['loss'], mode='lines+markers', name='Train Loss'))
-            fig.add_trace(go.Scatter(x=list(range(1, epochs+1)), y=history.history['val_loss'], mode='lines+markers', name='Validation Loss'))
-            fig.update_layout(title="Độ chính xác và Mất mát qua các Epoch", xaxis_title="Epoch", yaxis_title="Giá trị", height=500)
+            fig_line = go.Figure()
+            fig_line.add_trace(go.Scatter(x=list(range(1, epochs+1)), y=history.history['accuracy'], mode='lines+markers', name='Train Accuracy'))
+            fig_line.add_trace(go.Scatter(x=list(range(1, epochs+1)), y=history.history['val_accuracy'], mode='lines+markers', name='Validation Accuracy'))
+            fig_line.add_trace(go.Scatter(x=list(range(1, epochs+1)), y=history.history['loss'], mode='lines+markers', name='Train Loss'))
+            fig_line.add_trace(go.Scatter(x=list(range(1, epochs+1)), y=history.history['val_loss'], mode='lines+markers', name='Validation Loss'))
+            fig_line.update_layout(title="Độ chính xác và Mất mát qua các Epoch", xaxis_title="Epoch", yaxis_title="Giá trị", height=500)
+            st.plotly_chart(fig_line, use_container_width=True)
 
+            # Biểu đồ cột cho từng epoch
+            st.subheader("6. Biểu Đồ Cột Hiệu Suất Qua Từng Epoch")
+            epochs_list = list(range(1, epochs + 1))
+            train_acc_history = history.history['accuracy']  # List of accuracies per epoch
+            val_acc_history = history.history['val_accuracy']
+            train_loss_history = history.history['loss']
+            val_loss_history = history.history['val_loss']
+
+            fig_bar = go.Figure()
+            fig_bar.add_trace(go.Bar(x=epochs_list, y=train_acc_history, name='Train Accuracy', marker_color='blue'))
+            fig_bar.add_trace(go.Bar(x=epochs_list, y=val_acc_history, name='Validation Accuracy', marker_color='orange'))
+            fig_bar.add_trace(go.Bar(x=epochs_list, y=train_loss_history, name='Train Loss', marker_color='green'))
+            fig_bar.add_trace(go.Bar(x=epochs_list, y=val_loss_history, name='Validation Loss', marker_color='red'))
+            fig_bar.update_layout(
+                title="Hiệu Suất Qua Từng Epoch",
+                xaxis_title="Epoch",
+                yaxis_title="Giá trị",
+                barmode='group',  # Nhóm các cột lại với nhau
+                height=400
+            )
+            st.plotly_chart(fig_bar, use_container_width=True)
 
             # Biểu đồ so sánh
-            st.subheader("6. So Sánh Train, Validation và Test")
+            st.subheader("7. So Sánh Train, Validation và Test")
             fig_compare = go.Figure()
             fig_compare.add_trace(go.Bar(x=['Train', 'Validation', 'Test'], y=[train_acc, val_acc, test_acc], name='Accuracy', marker_color=['blue', 'orange', 'purple']))
             fig_compare.add_trace(go.Bar(x=['Train', 'Validation', 'Test'], y=[train_loss, val_loss, test_loss], name='Loss', marker_color=['green', 'red', 'pink']))
@@ -167,12 +189,14 @@ def train_mnist(X_full, y_full):
             st.plotly_chart(fig_compare, use_container_width=True)
 
             # Biểu đồ cấu trúc mạng
-            st.subheader("7. Cấu Trúc Mạng Neural")
+            st.subheader("8. Cấu Trúc Mạng Neural")
             fig_structure = plot_network_structure(n_hidden_layers, neurons_per_layer)
             st.plotly_chart(fig_structure, use_container_width=True)
 
             # Log MLflow
             mlflow.log_params({
+                "run_id": run_id,
+                "run_name": run_name,
                 "n_hidden_layers": n_hidden_layers,
                 "neurons_per_layer": neurons_per_layer,
                 "epochs": epochs,
@@ -186,7 +210,7 @@ def train_mnist(X_full, y_full):
                 "log_time": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             })
             mlflow.log_metrics({
-                "train_accuracy": float(train_acc),
+                "train_accuracy": float(train_acc),  # Use the scalar value from model.evaluate()
                 "val_accuracy": float(val_acc),
                 "test_accuracy": float(test_acc),
                 "train_loss": float(train_loss),
@@ -197,19 +221,18 @@ def train_mnist(X_full, y_full):
             mlflow.keras.log_model(model, "model")
 
             # Hiển thị thông tin MLflow
-            st.subheader("8. Thông Tin Được Ghi Lại")
+            st.subheader("9. Thông Tin Được Ghi Lại")
             runs = mlflow.search_runs()
-            expected_columns = ['params.n_hidden_layers', 'params.neurons_per_layer', 'params.epochs',
-                              'params.batch_size', 'params.learning_rate', 'params.activation',
-                              'params.samples', 
-                              'metrics.train_accuracy', 'metrics.val_accuracy', 'metrics.test_accuracy', 
-                              'metrics.train_loss', 'metrics.val_loss', 'metrics.test_loss', 'params.log_time']
+            expected_columns = [
+                'params.run_id',
+                'params.run_name',
+                'params.n_hidden_layers', 'params.neurons_per_layer', 'params.epochs',
+                'params.batch_size', 'params.learning_rate', 'params.activation',
+                'params.samples', 
+                'metrics.train_accuracy', 'metrics.val_accuracy', 'metrics.test_accuracy', 
+                'metrics.train_loss', 'metrics.val_loss', 'metrics.test_loss', 'params.log_time'
+            ]
             for col in expected_columns:
                 if col not in runs.columns:
                     runs[col] = None
             st.dataframe(runs[['run_id'] + expected_columns])
-
-if __name__ == "__main__":
-    from tensorflow.keras.datasets import mnist
-    (X_full, y_full), (_, _) = mnist.load_data()
-    train_mnist(X_full, y_full)

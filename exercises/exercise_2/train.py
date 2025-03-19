@@ -12,9 +12,17 @@ import datetime
 import time
 import logging
 
-# Tắt log không cần thiết từ TensorFlow và MLflow
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Tắt log TensorFlow
-logging.getLogger("mlflow").setLevel(logging.WARNING)  # Giảm log MLflow
+# # Tắt log không cần thiết từ TensorFlow và MLflow
+# os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Tắt log TensorFlow
+# logging.getLogger("mlflow").setLevel(logging.WARNING)  # Giảm log MLflow
+def mlflow_input():
+    DAGSHUB_MLFLOW_URI = 'https://dagshub.com/VietNam0410/ML_v3.mlflow'
+    mlflow.set_tracking_uri(DAGSHUB_MLFLOW_URI)
+    st.session_state['mlflow_url'] = DAGSHUB_MLFLOW_URI
+    os.environ['MLFLOW_TRACKING_USERNAME'] = 'VietNam0410'
+    os.environ['MLFLOW_TRACKING_PASSWORD'] = 'c9db6bdcca1dfed76d2af2cdb15a9277e6732d6b'
+    os.environ["CUDA_VISIBLE_DEVICES"] = ""  # Chạy trên CPU để tránh lỗi CUDA
+    return 'ML_v3'
 
 @st.cache_resource
 def get_scaler():
@@ -27,14 +35,6 @@ def get_model(model_choice, **params):
     else:
         return DecisionTreeClassifier(**params)
 
-def mlflow_input():
-    DAGSHUB_MLFLOW_URI = 'https://dagshub.com/VietNam0410/ML_v3.mlflow'
-    mlflow.set_tracking_uri(DAGSHUB_MLFLOW_URI)
-    st.session_state['mlflow_url'] = DAGSHUB_MLFLOW_URI
-    os.environ['MLFLOW_TRACKING_USERNAME'] = 'VietNam0410'
-    os.environ['MLFLOW_TRACKING_PASSWORD'] = 'c9db6bdcca1dfed76d2af2cdb15a9277e6732d6b'
-    os.environ["CUDA_VISIBLE_DEVICES"] = ""  # Chạy trên CPU để tránh lỗi CUDA
-    return 'ML_v3'
 
 def train_mnist(X_full, y_full):
     st.header('Huấn luyện Mô hình Nhận diện trên MNIST 🧮')

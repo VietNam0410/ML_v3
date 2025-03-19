@@ -10,6 +10,7 @@ import string
 import dagshub
 import datetime
 import sklearn
+import time  # Thêm để mô phỏng tiến độ
 
 # Hàm khởi tạo MLflow với caching
 @st.cache_resource
@@ -24,7 +25,7 @@ def mlflow_input():
 
 # Hàm tiền xử lý dữ liệu
 def preprocess_data():
-    st.header("Tiền xử lý dữ liệu Titanic 🛳️")
+    st.title("Tiền xử lý dữ liệu Titanic 🛳️")
 
     # Khởi tạo MLflow chỉ một lần và lưu vào session_state
     if 'mlflow_url' not in st.session_state:
@@ -310,15 +311,22 @@ def preprocess_data():
         processed_file = "exercises/exercise_1/data/processed/titanic_processed.csv"
         os.makedirs(os.path.dirname(processed_file), exist_ok=True)
         
+        # Tạo thanh tiến trình
+        progress_text = st.empty()
+        progress_bar = st.progress(0)
+        
         with st.spinner("Đang xử lý và log dữ liệu..."):
-            # Lưu file trực tiếp mà không dùng save_data
+            # Bước 1: Lưu file (30%)
+            progress_text.text("Đang lưu file dữ liệu... (Bước 1/4)")
             try:
                 st.session_state['data'].to_csv(
                     processed_file,
                     index=False,
-                    compression='infer',  # Giữ nén nếu cần
+                    compression='infer',
                     encoding='utf-8'
                 )
+                time.sleep(0.5)  # Mô phỏng thời gian xử lý
+                progress_bar.progress(30)
             except Exception as e:
                 st.error(f"Lỗi khi lưu file: {str(e)}")
                 return
@@ -335,9 +343,14 @@ def preprocess_data():
                 with mlflow.start_run(run_name=run_name):
                     log_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     
-                    # Log parameters và metrics
+                    # Bước 2: Log parameters (60%)
+                    progress_text.text("Đang log parameters lên MLflow... (Bước 2/4)")
                     log_preprocessing_params(st.session_state['preprocessing_steps'])
-                    mlflow.log_artifact(processed_file, artifact_path="processed_data")
+                    time.sleep(0.5)  # Mô phỏng thời gian xử lý
+                    progress_bar.progress(60)
+                    
+                    # Bước 3: Log metrics (80%)
+                    progress_text.text("Đang log metrics lên MLflow... (Bước 3/4)")
                     mlflow.log_param("num_rows", len(st.session_state['data']))
                     mlflow.log_param("num_columns", len(st.session_state['data'].columns))
                     mlflow.log_param("pandas_version", pd.__version__)
@@ -345,6 +358,14 @@ def preprocess_data():
                     mlflow.log_metric("missing_values_before", missing_info.sum())
                     mlflow.log_metric("missing_values_after", st.session_state['data'].isnull().sum().sum())
                     mlflow.log_metric("missing_values_handled", missing_info.sum() - st.session_state['data'].isnull().sum().sum())
+                    time.sleep(0.5)  # Mô phỏng thời gian xử lý
+                    progress_bar.progress(80)
+                    
+                    # Bước 4: Log artifact (100%)
+                    progress_text.text("Đang log artifact lên MLflow... (Bước 4/4)")
+                    mlflow.log_artifact(processed_file, artifact_path="processed_data")
+                    time.sleep(0.5)  # Mô phỏng thời gian xử lý
+                    progress_bar.progress(100)
                     
                     # Lấy run ID và URL
                     run_id = mlflow.active_run().info.run_id
@@ -362,6 +383,3 @@ def preprocess_data():
             st.write("Dữ liệu đã xử lý:", st.session_state['data'])
             saved_data = load_data(processed_file)
             st.write("Xác nhận dữ liệu từ file đã lưu:", saved_data)
-
-if __name__ == "__main__":
-    preprocess_data()

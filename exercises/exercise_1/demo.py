@@ -7,7 +7,9 @@ import os
 import dagshub
 import datetime
 from sklearn.ensemble import RandomForestClassifier
-
+from sklearn.linear_model import LogisticRegression
+from sklearn.preprocessing import PolynomialFeatures
+from sklearn.pipeline import Pipeline
 # Hàm khởi tạo MLflow
 def mlflow_input():
     DAGSHUB_MLFLOW_URI = "https://dagshub.com/VietNam0410/ML_v3.mlflow"
@@ -110,11 +112,21 @@ def show_demo():
 
     with tab1:
         st.subheader("Bước 1: Chọn Mô hình Đã Huấn luyện")
+        # Tải dữ liệu gốc từ titanic.csv để lấy thông tin cột và giá trị hợp lệ
+        original_file = "exercises/exercise_1/data/raw/titanic.csv"
+        try:
+            with st.spinner("Đang tải dữ liệu gốc từ titanic.csv..."):
+                original_data = load_cached_data(original_file)
+        except FileNotFoundError:
+            st.error("File titanic.csv không tìm thấy. Vui lòng kiểm tra đường dẫn.")
+            return
+
+        # Tải dữ liệu đã xử lý để kiểm tra các cột mà mô hình yêu cầu
         processed_file = "exercises/exercise_1/data/processed/titanic_processed.csv"
         try:
             with st.spinner("Đang tải dữ liệu đã xử lý..."):
-                data = load_cached_data(processed_file)
-            X_full = data
+                processed_data = load_cached_data(processed_file)
+            X_full = processed_data
         except FileNotFoundError:
             st.error("Dữ liệu đã xử lý không tìm thấy. Vui lòng tiền xử lý dữ liệu trước.")
             return
@@ -159,84 +171,103 @@ def show_demo():
                 st.error(f"Không thể tải mô hình từ Run ID {selected_run_id}: {str(e)}")
                 return
 
-        # Bước 2: Người dùng chọn dữ liệu cho tất cả cột trong titanic_processed.csv, ngoại trừ PassengerId, Name, Survived
+        # Bước 2: Người dùng nhập dữ liệu dựa trên các cột trong titanic.csv
         model = st.session_state['model']
         expected_columns = model.feature_names_in_ if hasattr(model, 'feature_names_in_') else X_full.columns.tolist()
 
-        # Loại bỏ cột PassengerId, Name, Survived
-        input_columns = [col for col in expected_columns if col not in ['PassengerId', 'Name', 'Survived']]
+        # Loại bỏ cột không cần thiết
+        input_columns = [col for col in original_data.columns if col not in ['PassengerId', 'Survived', 'Name']]
 
-        st.subheader("Bước 2: Chọn Dữ liệu để Dự đoán (Tất cả cột ngoại trừ ID, Name, Survived, giữ nguyên chưa mã hóa)")
+        st.subheader("Bước 2: Nhập Dữ liệu để Dự đoán (Dựa trên titanic.csv)")
         input_data = {}
         for col in input_columns:
-            if col in X_full.columns:
-                # Kiểm tra kiểu dữ liệu của cột trong dữ liệu gốc
-                if pd.api.types.is_numeric_dtype(X_full[col]):  # Cột số
-                    min_val = float(X_full[col].min()) if not pd.isna(X_full[col].min()) else 0
-                    max_val = float(X_full[col].max()) if not pd.isna(X_full[col].max()) else 100
-                    mean_val = float(X_full[col].mean()) if not pd.isna(X_full[col].mean()) else (min_val + max_val) / 2
-                    
-                    if col == 'Age':
-                        input_data[col] = st.number_input(
-                            f"Nhập giá trị cho '{col}' (0-150, số nguyên)",
-                            min_value=0,
-                            max_value=150,
-                            value=int(mean_val),
-                            step=1,
-                            key=f"input_{col}"
-                        )
-                    else:
-                        input_data[col] = st.number_input(
-                            f"Nhập giá trị cho '{col}' ({min_val} đến {max_val}, số thực)",
-                            min_value=min_val,
-                            max_value=max_val,
-                            value=mean_val,
-                            key=f"input_{col}"
-                        )
-                else:  # Cột chuỗi (giữ nguyên giá trị gốc, chưa mã hóa)
-                    unique_vals = X_full[col].dropna().unique().tolist()
-                    if col == 'Sex':
-                        input_data[col] = st.selectbox(
-                            f"Chọn giá trị cho '{col}'",
-                            options=unique_vals,  # Giữ nguyên 'male', 'female'
-                            key=f"input_{col}"
-                        )
-                    elif col in ['Ticket', 'Cabin', 'Embarked']:
-                        input_data[col] = st.selectbox(
-                            f"Chọn giá trị cho '{col}'",
-                            options=[''] + unique_vals,  # Thêm tùy chọn rỗng
-                            key=f"input_{col}"
-                        )
-                    else:
-                        input_data[col] = st.selectbox(
-                            f"Chọn giá trị cho '{col}'",
-                            options=unique_vals,
-                            key=f"input_{col}"
-                        )
+            if col in original_data.columns:
+                if col == 'Pclass':
+                    input_data[col] = st.selectbox(
+                        f"Chọn giá trị cho '{col}' (Lớp vé: 1, 2, 3)",
+                        options=[1, 2, 3],
+                        key=f"input_{col}"
+                    )
+                elif col == 'Sex':
+                    input_data[col] = st.selectbox(
+                        f"Chọn giá trị cho '{col}'",
+                        options=['male', 'female'],
+                        key=f"input_{col}"
+                    )
+                elif col == 'Age':
+                    # Age có thể để trống (NaN), nên thêm tùy chọn "Không xác định"
+                    age_options = ['Không xác định'] + list(range(0, 151))
+                    selected_age = st.selectbox(
+                        f"Chọn giá trị cho '{col}' (0-150, hoặc Không xác định)",
+                        options=age_options,
+                        key=f"input_{col}"
+                    )
+                    input_data[col] = None if selected_age == 'Không xác định' else selected_age
+                elif col in ['SibSp', 'Parch']:
+                    input_data[col] = st.number_input(
+                        f"Nhập giá trị cho '{col}' (Số lượng anh chị em/vợ chồng hoặc cha mẹ/con cái, số nguyên không âm)",
+                        min_value=0,
+                        max_value=10,
+                        value=0,
+                        step=1,
+                        key=f"input_{col}"
+                    )
+                elif col == 'Ticket':
+                    unique_tickets = original_data['Ticket'].dropna().unique().tolist()
+                    input_data[col] = st.selectbox(
+                        f"Chọn giá trị cho '{col}' (Mã vé, có thể để trống)",
+                        options=[''] + unique_tickets,
+                        key=f"input_{col}"
+                    )
+                elif col == 'Fare':
+                    input_data[col] = st.number_input(
+                        f"Nhập giá trị cho '{col}' (Giá vé, số thực không âm)",
+                        min_value=0.0,
+                        max_value=600.0,
+                        value=32.2,  # Giá trị trung bình trong dữ liệu gốc
+                        step=0.1,
+                        key=f"input_{col}"
+                    )
+                elif col == 'Cabin':
+                    unique_cabins = original_data['Cabin'].dropna().unique().tolist()
+                    input_data[col] = st.selectbox(
+                        f"Chọn giá trị cho '{col}' (Số hiệu cabin, có thể để trống)",
+                        options=[''] + unique_cabins,
+                        key=f"input_{col}"
+                    )
+                elif col == 'Embarked':
+                    input_data[col] = st.selectbox(
+                        f"Chọn giá trị cho '{col}' (Cảng lên tàu: S, C, Q, hoặc để trống)",
+                        options=['', 'S', 'C', 'Q'],
+                        key=f"input_{col}"
+                    )
+                else:
+                    st.warning(f"Cột '{col}' không được hỗ trợ để nhập. Sử dụng giá trị mặc định 0.")
+                    input_data[col] = 0
             else:
-                st.warning(f"Cột '{col}' không tồn tại trong dữ liệu huấn luyện. Sử dụng giá trị mặc định 0.")
+                st.warning(f"Cột '{col}' không tồn tại trong dữ liệu gốc. Sử dụng giá trị mặc định 0.")
                 input_data[col] = 0
 
-        # Kiểm tra dữ liệu trước khi tạo DataFrame, đảm bảo không có giá trị rỗng cho cột chuỗi
+        # Kiểm tra dữ liệu trước khi tạo DataFrame
         for col in input_columns:
-            if col in ['Sex', 'Ticket', 'Cabin', 'Embarked'] and input_data[col] == '':
+            if col in ['Sex'] and input_data[col] == '':
                 st.error(f"Vui lòng chọn giá trị hợp lệ cho cột '{col}'.")
                 return
 
-        # Tạo DataFrame từ dữ liệu người dùng chọn (chưa mã hóa)
+        # Tạo DataFrame từ dữ liệu người dùng nhập (chưa mã hóa)
         X_selected = pd.DataFrame([input_data])
 
         # Mã hóa dữ liệu trước khi dự đoán để khớp với mô hình
         for col in X_selected.columns:
             if col in ['Sex', 'Ticket', 'Cabin', 'Embarked'] and X_selected[col].dtype == 'object':
                 # Lấy giá trị unique từ dữ liệu huấn luyện để mã hóa
-                unique_vals = X_full[col].dropna().unique()
+                unique_vals = original_data[col].dropna().unique()
                 value_map = {val: idx for idx, val in enumerate(unique_vals)}
                 if col == 'Sex':
                     value_map = {'male': 0, 'female': 1}  # Đảm bảo Sex được mã hóa 0, 1
                 X_selected[col] = X_selected[col].map(value_map).fillna(0).astype(int)
 
-        st.write("Dữ liệu Nhập của Bạn cho Dự đoán (Chưa mã hóa):")
+        st.write("Dữ liệu Nhập của Bạn (Chưa mã hóa):")
         st.write(pd.DataFrame([input_data]))
         st.write("Dữ liệu Đã Mã hóa để Dự đoán:")
         st.write(X_selected)
@@ -426,6 +457,3 @@ def show_demo():
                     except mlflow.exceptions.MlflowException as e:
                         st.error(f"Không thể xóa run {run_id}: {str(e)}")
                 st.success("Các run đã chọn đã được xóa. Làm mới trang để cập nhật danh sách.")
-
-if __name__ == "__main__":
-    show_demo()

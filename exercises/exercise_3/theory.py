@@ -12,9 +12,6 @@ def display_algorithm_info_3():
         st.write("- **n_clusters**: Số lượng cụm (K) cần tạo.")
         st.write("  - Giá trị nhỏ: Ít cụm hơn, có thể mất thông tin chi tiết.")
         st.write("  - Giá trị lớn: Nhiều cụm hơn, có thể dẫn đến overfitting.")
-        st.write("  - `random`: Chọn ngẫu nhiên, có thể chậm hội tụ hơn.")
-        st.write("- **max_iter**: Số lần lặp tối đa, kiểm soát số lần cập nhật tâm cụm.")
-        st.write("- **random_state**: Đặt giá trị cố định để đảm bảo kết quả tái lập được.")
 
         st.write("### 3. Các bước huấn luyện")
         st.write("1. **Tiền xử lý dữ liệu**: Chuẩn hóa dữ liệu (ví dụ: dùng StandardScaler) để các đặc trưng có cùng thang đo.")
