@@ -28,10 +28,11 @@ def view_log_6():
 
     # Định nghĩa các cột mong muốn
     expected_columns = [
+        'params.run_name',  # Thêm run_name vào danh sách cột
         'params.n_hidden_layers', 'params.neurons_per_layer', 'params.epochs',
         'params.batch_size', 'params.learning_rate', 'params.activation',
         'params.num_samples', 'params.test_ratio', 'params.val_ratio', 'params.train_ratio',
-        'params.labeled_ratio', 'params.max_iterations', 'params.threshold',
+        'params.labeled_ratio', 'params.max_iterations', 'params.initial_threshold',  # Sửa threshold thành initial_threshold để đồng bộ với code huấn luyện
         'params.labeling_iterations', 'params.total_iterations', 'params.log_time',
         'metrics.final_val_accuracy', 'metrics.final_test_accuracy', 'metrics.final_train_accuracy',
         'metrics.total_correct_pseudo_labels'
@@ -91,10 +92,12 @@ def view_log_6():
     selected_run = st.selectbox("Chọn một run để xem chi tiết:", run_options, index=0 if run_options else None)
     if selected_run and run_options:
         run_info = client.get_run(selected_run)
+        run_name = run_info.data.params.get('run_name', 'Không có tên')  # Lấy run_name từ params
 
         # Hiển thị thông tin chi tiết về run
-        st.subheader(f"Thông Tin Run Được Chọn: {selected_run}")
+        st.subheader(f"Thông Tin Run Được Chọn: {run_name} (Run ID: {selected_run})")
         st.write(f"**Run ID**: {selected_run}")
+        st.write(f"**Run Name**: {run_name}")
 
         # Hiển thị kết quả (Metrics)
         if run_info.data.metrics:
@@ -136,7 +139,7 @@ def view_log_6():
 
             st.write("#### Tham Số Pseudo Labeling")
             st.write(f"- Số vòng lặp tối đa: {run_info.data.params.get('max_iterations', 'N/A')}")
-            st.write(f"- Ngưỡng độ tin cậy: {run_info.data.params.get('threshold', 'N/A')}")
+            st.write(f"- Ngưỡng độ tin cậy ban đầu: {run_info.data.params.get('initial_threshold', 'N/A')}")  # Sửa để đồng bộ với code huấn luyện
             st.write(f"- Số vòng lặp gán nhãn: {run_info.data.params.get('labeling_iterations', 'N/A')}")
             st.write(f"- Tổng số vòng lặp: {run_info.data.params.get('total_iterations', 'N/A')}")
 

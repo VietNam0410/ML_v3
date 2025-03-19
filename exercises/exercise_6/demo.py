@@ -60,7 +60,11 @@ def load_trained_model(run_id, local_path="final_model"):
 def demo_mnist_6():
     st.title("✏️ Dự Đoán Chữ Số MNIST với Pseudo Labeling")
 
-    # Chọn run_id từ MLflow
+    # Khởi tạo lịch sử dự đoán trong session_state
+    if 'prediction_history' not in st.session_state:
+        st.session_state['prediction_history'] = []
+
+    # Chọn run_name từ MLflow
     st.subheader("1. Chọn Mô Hình Đã Huấn Luyện")
     mlflow.set_experiment("MNIST_Pseudo_Labeling_Train")
     runs = mlflow.search_runs(experiment_ids=[mlflow.get_experiment_by_name("MNIST_Pseudo_Labeling_Train").experiment_id])
@@ -68,29 +72,35 @@ def demo_mnist_6():
         st.error("Không tìm thấy mô hình nào trong MLflow. Vui lòng huấn luyện mô hình trước!")
         return
     
-    # Tạo tùy chọn hiển thị run_id kèm thời gian log (nếu có)
+    # Tạo tùy chọn hiển thị run_name kèm thời gian log (nếu có)
     run_options = {}
     for _, row in runs.iterrows():
         run_id = row['run_id']
+        run_name = row.get('params.run_name', 'Không có tên')  # Lấy run_name từ MLflow
         log_time = row.get('params.log_time', 'Không có thời gian')
-        run_options[f"{run_id} - {log_time}"] = run_id
+        run_options[f"{run_name} - {log_time}"] = run_id  # Hiển thị run_name - log_time
     
-    selected_run = st.selectbox("Chọn Run ID", list(run_options.keys()))
-    run_id = run_options[selected_run]
+    selected_run = st.selectbox("Chọn Run", list(run_options.keys()))
+    run_id = run_options[selected_run]  # Lấy run_id tương ứng để tải mô hình
     
     # Tải mô hình
     model = load_trained_model(run_id)
     if model is None:
         return
 
-    st.success(f"Đã tải mô hình từ Run ID: {run_id}")
+    st.success(f"Đã tải mô hình từ Run ID: {run_id} (Run Name: {selected_run})")
 
     # Chọn phương thức nhập liệu
     st.subheader("2. Nhập Chữ Số")
     input_method = st.radio("Chọn cách nhập:", ("Vẽ tay", "Upload ảnh"))
 
-    # Biến lưu trữ ảnh đầu vào
-    input_image = None
+    # Biến lưu trữ ảnh đầu vào và trạng thái
+    if 'input_image' not in st.session_state:
+        st.session_state['input_image'] = None
+    if 'last_processed_image' not in st.session_state:
+        st.session_state['last_processed_image'] = None
+    if 'can_predict' not in st.session_state:
+        st.session_state['can_predict'] = False
 
     # Xử lý đầu vào
     if input_method == "Vẽ tay":
@@ -112,6 +122,9 @@ def demo_mnist_6():
 
         if st.button("Xóa bảng vẽ"):
             st.session_state['reset_canvas'] = True
+            st.session_state['input_image'] = None
+            st.session_state['last_processed_image'] = None
+            st.session_state['can_predict'] = False
             st.rerun()
         else:
             st.session_state['reset_canvas'] = False
@@ -119,28 +132,40 @@ def demo_mnist_6():
         if canvas_result.image_data is not None:
             img_array = canvas_result.image_data.copy()
             img = Image.fromarray(img_array.astype('uint8')).convert('L')
-            input_image = preprocess_image(img)
+            processed_image = preprocess_image(img)
+            
+            # Kiểm tra xem hình ảnh có thay đổi so với lần xử lý trước không
+            if st.session_state['last_processed_image'] is None or not np.array_equal(processed_image, st.session_state['last_processed_image']):
+                st.session_state['input_image'] = processed_image
+                st.session_state['last_processed_image'] = processed_image
+                st.session_state['can_predict'] = True
             st.image(img.resize((28, 28)), caption="Ảnh đã xử lý (28x28)", width=100)
     else:
         uploaded_file = st.file_uploader("Tải ảnh chữ số (jpg, png)", type=["jpg", "png"])
         if uploaded_file is not None:
             img = Image.open(uploaded_file)
-            input_image = preprocess_image(img)
+            processed_image = preprocess_image(img)
+            
+            # Kiểm tra xem hình ảnh có thay đổi so với lần xử lý trước không
+            if st.session_state['last_processed_image'] is None or not np.array_equal(processed_image, st.session_state['last_processed_image']):
+                st.session_state['input_image'] = processed_image
+                st.session_state['last_processed_image'] = processed_image
+                st.session_state['can_predict'] = True
             st.image(img.resize((28, 28)), caption="Ảnh đã xử lý (28x28)", width=100)
 
     # Nút dự đoán
-    if input_image is not None and st.button("Dự đoán"):
+    if st.session_state['input_image'] is not None and st.session_state['can_predict'] and st.button("Dự đoán"):
         st.subheader("3. Kết Quả Dự Đoán")
-        prediction = model.predict(input_image)
-        predicted_digit = np.argmax(prediction)
+        prediction = model.predict(st.session_state['input_image'])
+        predicted_digit = np.argmax(prediction, axis=1)[0]  # Lấy chữ số có độ tin cậy cao nhất
 
         # Hiển thị chữ số dự đoán và độ tin cậy
-        confidence = prediction[0][predicted_digit] * 100
+        confidence = prediction[0][predicted_digit] * 100  # Độ tin cậy của chữ số được dự đoán
         st.write(f"**Dự đoán**: Chữ số **{predicted_digit}**")
         st.write(f"**Độ tin cậy cao nhất**: {confidence:.2f}%")
 
         # Hiển thị độ tin cậy cho tất cả các chữ số trên biểu đồ
-        probabilities = prediction[0] * 100
+        probabilities = prediction[0] * 100  # Chuyển đổi thành phần trăm
 
         fig = go.Figure()
         fig.add_trace(go.Bar(
@@ -158,12 +183,45 @@ def demo_mnist_6():
             height=400,
             yaxis=dict(range=[0, 100])
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True, key="current_prediction_chart")
+
+        # Lưu dự đoán vào lịch sử
+        st.session_state['prediction_history'].append({
+            'image': st.session_state['input_image'].reshape(28, 28),  # Lưu ảnh đã xử lý
+            'predicted_digit': predicted_digit,
+            'confidence': confidence,
+            'probabilities': probabilities,
+            # Tạo một biểu đồ mới cho lịch sử để tránh xung đột
+            'fig': go.Figure(
+                data=[
+                    go.Bar(
+                        x=list(range(10)),
+                        y=probabilities,
+                        marker_color=['blue' if i != predicted_digit else 'red' for i in range(10)],
+                        text=[f"{x:.2f}%" for x in probabilities],
+                        textposition='auto',
+                        width=0.5
+                    )
+                ],
+                layout={
+                    'title': f"Độ tin cậy dự đoán: {confidence:.2f}%",
+                    'xaxis_title': "Chữ số (0-9)",
+                    'yaxis_title': "Độ tin cậy (%)",
+                    'height': 400,
+                    'yaxis': {'range': [0, 100]}
+                }
+            )
+        })
+        
+        # Đặt lại trạng thái để tránh dự đoán lại trên cùng một hình ảnh
+        st.session_state['can_predict'] = False
 
         # Hiển thị thông tin mô hình từ MLflow
         st.subheader("4. Thông Tin Mô Hình (Tham Khảo)")
         run_data = runs[runs['run_id'] == run_id].iloc[0]
-        test_acc = run_data.get('metrics.final_test_accuracy', None) * 100 if run_data.get('metrics.final_test_accuracy') is not None else None
+        test_acc = run_data.get('metrics.final_test_accuracy', None)
+        if test_acc is not None:
+            test_acc = float(test_acc) * 100  # Chuyển đổi thành phần trăm
         iterations = run_data.get('params.labeling_iterations', 'Không có dữ liệu')
         num_samples = run_data.get('params.num_samples', 'Không có dữ liệu')
         initial_threshold = run_data.get('params.initial_threshold', 'Không có dữ liệu')
@@ -177,11 +235,33 @@ def demo_mnist_6():
         st.write(f"- Số mẫu huấn luyện: {num_samples}")
         st.write(f"- Ngưỡng độ tin cậy ban đầu: {initial_threshold}")
 
+        # Kiểm tra độ tin cậy so với độ chính xác trên tập test
         if test_acc is not None:
-            max_prob = max(probabilities)
+            max_prob = confidence  # Độ tin cậy cao nhất của dự đoán hiện tại
             if max_prob > test_acc + 10:
-                st.warning("**Cảnh báo**: Độ tin cậy cao hơn đáng kể so với độ chính xác trên tập test. Kết quả có thể không chính xác.")
+                st.warning(f"**Cảnh báo**: Độ tin cậy ({max_prob:.2f}%) cao hơn đáng kể so với độ chính xác trên tập test ({test_acc:.2f}%). Kết quả có thể không đáng tin cậy.")
             elif max_prob < test_acc - 20:
-                st.info("**Ghi chú**: Độ tin cậy thấp hơn nhiều so với độ chính xác trên tập test. Ảnh đầu vào có thể không rõ ràng.")
-    elif input_image is None:
+                st.info(f"**Ghi chú**: Độ tin cậy ({max_prob:.2f}%) thấp hơn nhiều so với độ chính xác trên tập test ({test_acc:.2f}%). Ảnh đầu vào có thể không rõ ràng hoặc mô hình không phù hợp.")
+    elif st.session_state['input_image'] is None:
         st.write("Vui lòng vẽ hoặc tải ảnh trước khi dự đoán.")
+    elif not st.session_state['can_predict']:
+        st.write("Vui lòng vẽ hoặc tải một hình ảnh mới để dự đoán.")
+
+    # Hiển thị lịch sử dự đoán
+    if st.session_state['prediction_history']:
+        st.subheader("5. Lịch Sử Dự Đoán")
+        for i, pred in enumerate(st.session_state['prediction_history']):
+            st.markdown(f"### Dự Đoán {i+1}")
+            col1, col2 = st.columns([1, 3])
+            with col1:
+                st.image(pred['image'], caption=f"Ảnh dự đoán {i+1} (28x28)", width=100)
+            with col2:
+                st.write(f"**Dự đoán**: Chữ số **{pred['predicted_digit']}**")
+                st.write(f"**Độ tin cậy cao nhất**: {pred['confidence']:.2f}%")
+                # Thêm key duy nhất cho mỗi biểu đồ trong lịch sử
+                st.plotly_chart(pred['fig'], use_container_width=True, key=f"history_chart_{i}")
+
+        # Nút xóa lịch sử
+        if st.button("Xóa lịch sử dự đoán"):
+            st.session_state['prediction_history'] = []
+            st.rerun()

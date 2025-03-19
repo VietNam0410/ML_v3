@@ -65,7 +65,6 @@ def display_pseudo_labeled_examples(X_unlabeled, y_unlabeled_true, pseudo_labels
     cols = st.columns(num_examples)
     for i, idx in enumerate(sample_indices):
         if idx >= len(X_unlabeled):
-            st.warning(f"Chỉ số {idx} vượt quá kích thước của X_unlabeled ({len(X_unlabeled)}). Bỏ qua mẫu này.")
             continue
             
         img = X_unlabeled[idx].reshape(28, 28)
@@ -161,6 +160,7 @@ def train_mnist_pseudo_labeling(X_full, y_full):
     run_name = st.text_input("Tên Run (để trống để tự động tạo)", value="")
     if not run_name:
         run_name = f"PseudoLabel_{num_samples}_{test_ratio}_{val_ratio}_{n_hidden_layers}_{max_iterations}_{initial_threshold}"
+    st.write(f"Tên Run: **{run_name}**")  # Hiển thị tên run để người dùng biết
 
     try:
         model = Sequential()
@@ -177,6 +177,9 @@ def train_mnist_pseudo_labeling(X_full, y_full):
     if st.button("Bắt Đầu Huấn Luyện với Pseudo Labeling"):
         mlflow.set_experiment("MNIST_Pseudo_Labeling_Train")
         with mlflow.start_run(run_name=run_name) as run:
+            run_id = run.info.run_id  # Lấy run_id từ MLflow run
+            st.write(f"Run ID: **{run_id}**")  # Hiển thị run_id ngay khi bắt đầu
+
             X_current = X_labeled.copy()
             y_current = y_labeled_cat.copy()
             iteration = 0
@@ -299,9 +302,6 @@ def train_mnist_pseudo_labeling(X_full, y_full):
                         iteration += 1
                         continue
 
-                    if correct_ratio < 0.7 and iteration > 0:
-                        st.warning("Tỷ lệ nhãn giả đúng quá thấp (< 70%). Hãy xem xét giảm learning rate hoặc tăng ngưỡng độ tin cậy.")
-
                     X_pseudo = X_unlabeled[correct_and_confident_indices]
                     y_pseudo = pseudo_labels[correct_and_confident_indices]
                     y_pseudo_cat = to_categorical(y_pseudo, 10)
@@ -346,6 +346,16 @@ def train_mnist_pseudo_labeling(X_full, y_full):
             st.write(f"Tổng số mẫu gán đúng trên toàn bộ tập train: {final_correct_count} / {len(y_train)}")
             st.write(f"Tỷ lệ gán đúng cuối cùng: {final_accuracy:.4f}")
 
+            # Luôn lưu mô hình vào MLflow
+            _, final_val_acc = model.evaluate(X_val, y_val_cat, verbose=0)
+            _, final_test_acc = model.evaluate(X_test, y_test_cat, verbose=0)
+            val_accuracies.append(final_val_acc)
+            test_accuracies.append(final_test_acc)
+            st.success(f"Độ chính xác cuối cùng - Validation: {final_val_acc:.4f}, Test: {final_test_acc:.4f}")
+            mlflow.keras.log_model(model, "final_model")
+            st.success("Đã log mô hình vào MLflow với tên 'final_model'.")
+
+            # Huấn luyện bổ sung nếu đạt 100% chính xác
             if final_accuracy == 1.0:
                 st.subheader("6. Huấn Luyện Bổ Sung với Toàn Bộ Dữ Liệu")
                 additional_epochs = st.number_input("Số epochs bổ sung", min_value=1, max_value=50, value=5, step=1)
@@ -359,9 +369,9 @@ def train_mnist_pseudo_labeling(X_full, y_full):
                     _, final_test_acc = model.evaluate(X_test, y_test_cat, verbose=0)
                     val_accuracies.append(final_val_acc)
                     test_accuracies.append(final_test_acc)
-                    st.success(f"Độ chính xác cuối cùng - Validation: {final_val_acc:.4f}, Test: {final_test_acc:.4f}")
-
-                    mlflow.keras.log_model(model, "final_model")
+                    st.success(f"Độ chính xác cuối cùng sau huấn luyện bổ sung - Validation: {final_val_acc:.4f}, Test: {final_test_acc:.4f}")
+                    mlflow.keras.log_model(model, "final_model_after_additional_training")
+                    st.success("Đã log mô hình sau huấn luyện bổ sung vào MLflow với tên 'final_model_after_additional_training'.")
 
             total_iterations = iteration + (additional_epochs > 0 and 1 or 0)
             st.write(f"Tổng số vòng lặp: {total_iterations}")
@@ -390,7 +400,10 @@ def train_mnist_pseudo_labeling(X_full, y_full):
             )
             st.plotly_chart(fig_correct, use_container_width=True)
 
+            # Log các tham số và metrics
             mlflow.log_params({
+                "run_id": run_id,  # Log run_id
+                "run_name": run_name,  # Log run_name để đồng bộ
                 "num_samples": num_samples,
                 "test_ratio": test_ratio,
                 "val_ratio": val_ratio,
@@ -419,6 +432,8 @@ def train_mnist_pseudo_labeling(X_full, y_full):
             st.subheader("8. Thông Tin Được Ghi Lại")
             runs = mlflow.search_runs()
             expected_columns = [
+                'params.run_id',  # Thêm run_id vào danh sách hiển thị
+                'params.run_name',  # Thêm run_name vào danh sách hiển thị
                 'params.num_samples', 'params.test_ratio', 'params.val_ratio', 'params.train_ratio',
                 'params.labeled_ratio', 'params.n_hidden_layers', 'params.neurons_per_layer',
                 'params.epochs', 'params.batch_size', 'params.learning_rate', 'params.activation',
@@ -431,3 +446,6 @@ def train_mnist_pseudo_labeling(X_full, y_full):
                 if col not in runs.columns:
                     runs[col] = None
             st.dataframe(runs[['run_id'] + expected_columns])
+
+            # Hiển thị thông báo Run ID cuối cùng
+            st.success(f"Huấn luyện hoàn tất! Run ID: **{run_id}** (Tên Run: {run_name})")
