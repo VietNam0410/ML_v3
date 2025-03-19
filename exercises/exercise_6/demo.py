@@ -28,13 +28,33 @@ def preprocess_image(image):
     img_array = 1 - img_array  # Đảo ngược màu cho MNIST
     return img_array
 
-# Hàm tải mô hình từ MLflow
+# Hàm tải mô hình từ MLflow hoặc cục bộ
 @st.cache_resource
-def load_trained_model(run_id):
-    mlflow.set_experiment("MNIST_Pseudo_Labeling_Train")  # Sử dụng experiment mới
-    model_uri = f"runs:/{run_id}/final_model"  # Đường dẫn mô hình trong experiment mới
-    model = mlflow.keras.load_model(model_uri)
-    return model
+def load_trained_model(run_id, local_path="final_model"):
+    mlflow.set_experiment("MNIST_Pseudo_Labeling_Train")
+    model_uri = f"runs:/{run_id}/final_model"
+    model = None
+
+    # Thử tải từ MLflow
+    try:
+        model = mlflow.keras.load_model(model_uri)
+        st.success("Đã tải mô hình từ MLflow.")
+        return model
+    except Exception as e:
+        st.warning(f"Không thể tải mô hình từ MLflow. Lỗi: {str(e)}")
+    
+    # Nếu không tải được từ MLflow, thử tải từ file cục bộ
+    if os.path.exists(local_path):
+        try:
+            model = load_model(local_path)
+            st.success("Đã tải mô hình từ file cục bộ.")
+            return model
+        except Exception as e:
+            st.error(f"Không thể tải mô hình từ file cục bộ. Lỗi: {str(e)}")
+            return None
+    else:
+        st.error("Không tìm thấy mô hình cục bộ. Vui lòng huấn luyện và lưu mô hình trước!")
+        return None
 
 # Giao diện demo
 def demo_mnist_6():
@@ -42,23 +62,28 @@ def demo_mnist_6():
 
     # Chọn run_id từ MLflow
     st.subheader("1. Chọn Mô Hình Đã Huấn Luyện")
-    mlflow.set_experiment("MNIST_Pseudo_Labeling_Train")  # Sử dụng experiment mới
-    runs = mlflow.search_runs()
+    mlflow.set_experiment("MNIST_Pseudo_Labeling_Train")
+    runs = mlflow.search_runs(experiment_ids=[mlflow.get_experiment_by_name("MNIST_Pseudo_Labeling_Train").experiment_id])
     if runs.empty:
         st.error("Không tìm thấy mô hình nào trong MLflow. Vui lòng huấn luyện mô hình trước!")
         return
     
-    run_options = {f"{row['run_id']} - {row['params.log_time']}" if 'params.log_time' in row else row['run_id']: row['run_id'] for _, row in runs.iterrows()}
+    # Tạo tùy chọn hiển thị run_id kèm thời gian log (nếu có)
+    run_options = {}
+    for _, row in runs.iterrows():
+        run_id = row['run_id']
+        log_time = row.get('params.log_time', 'Không có thời gian')
+        run_options[f"{run_id} - {log_time}"] = run_id
+    
     selected_run = st.selectbox("Chọn Run ID", list(run_options.keys()))
     run_id = run_options[selected_run]
     
     # Tải mô hình
-    try:
-        model = load_trained_model(run_id)
-        st.success(f"Đã tải mô hình từ Run ID: {run_id}")
-    except Exception as e:
-        st.error(f"Không thể tải mô hình từ Run ID {run_id}. Lỗi: {str(e)}")
+    model = load_trained_model(run_id)
+    if model is None:
         return
+
+    st.success(f"Đã tải mô hình từ Run ID: {run_id}")
 
     # Chọn phương thức nhập liệu
     st.subheader("2. Nhập Chữ Số")
@@ -92,7 +117,7 @@ def demo_mnist_6():
             st.session_state['reset_canvas'] = False
 
         if canvas_result.image_data is not None:
-            img_array = canvas_result.image_data.copy()  # Tạo bản sao để tránh lỗi ownership
+            img_array = canvas_result.image_data.copy()
             img = Image.fromarray(img_array.astype('uint8')).convert('L')
             input_image = preprocess_image(img)
             st.image(img.resize((28, 28)), caption="Ảnh đã xử lý (28x28)", width=100)
@@ -109,49 +134,50 @@ def demo_mnist_6():
         prediction = model.predict(input_image)
         predicted_digit = np.argmax(prediction)
 
-        # Hiển thị chữ số dự đoán và độ tin cậy rõ ràng
+        # Hiển thị chữ số dự đoán và độ tin cậy
         confidence = prediction[0][predicted_digit] * 100
         st.write(f"**Dự đoán**: Chữ số **{predicted_digit}**")
         st.write(f"**Độ tin cậy cao nhất**: {confidence:.2f}%")
 
         # Hiển thị độ tin cậy cho tất cả các chữ số trên biểu đồ
-        probabilities = prediction[0] * 100  # Chuyển sang phần trăm
+        probabilities = prediction[0] * 100
 
-        # Biểu đồ xác suất với độ tin cậy hiển thị trên cột
         fig = go.Figure()
         fig.add_trace(go.Bar(
             x=list(range(10)),
             y=probabilities,
-            marker_color=['blue' if i != predicted_digit else 'red' for i in range(10)],  # Đánh dấu chữ số dự đoán bằng màu đỏ
-            text=[f"{x:.2f}%" for x in probabilities],  # Hiển thị giá trị trên cột
+            marker_color=['blue' if i != predicted_digit else 'red' for i in range(10)],
+            text=[f"{x:.2f}%" for x in probabilities],
             textposition='auto',
-            width=0.5  # Điều chỉnh độ rộng cột
+            width=0.5
         ))
         fig.update_layout(
             title=f"Độ tin cậy dự đoán: {confidence:.2f}%",
             xaxis_title="Chữ số (0-9)",
             yaxis_title="Độ tin cậy (%)",
             height=400,
-            yaxis=dict(range=[0, 100])  # Đặt giới hạn trục y từ 0 đến 100
+            yaxis=dict(range=[0, 100])
         )
         st.plotly_chart(fig, use_container_width=True)
 
         # Hiển thị thông tin mô hình từ MLflow
         st.subheader("4. Thông Tin Mô Hình (Tham Khảo)")
         run_data = runs[runs['run_id'] == run_id].iloc[0]
-        test_acc = run_data['metrics.final_test_accuracy'] * 100 if 'metrics.final_test_accuracy' in run_data else None
-        iterations = run_data['params.labeling_iterations'] if 'params.labeling_iterations' in run_data else None
-        num_samples = run_data['params.num_samples'] if 'params.num_samples' in run_data else None
+        test_acc = run_data.get('metrics.final_test_accuracy', None) * 100 if run_data.get('metrics.final_test_accuracy') is not None else None
+        iterations = run_data.get('params.labeling_iterations', 'Không có dữ liệu')
+        num_samples = run_data.get('params.num_samples', 'Không có dữ liệu')
+        initial_threshold = run_data.get('params.initial_threshold', 'Không có dữ liệu')
 
         st.write(f"**Thông tin từ MLflow:**")
-        if test_acc:
+        if test_acc is not None:
             st.write(f"- Độ chính xác trên tập test: {test_acc:.2f}%")
-        if iterations:
-            st.write(f"- Số vòng lặp Pseudo Labeling: {iterations}")
-        if num_samples:
-            st.write(f"- Số mẫu huấn luyện: {num_samples}")
+        else:
+            st.write("- Độ chính xác trên tập test: Không có dữ liệu")
+        st.write(f"- Số vòng lặp Pseudo Labeling: {iterations}")
+        st.write(f"- Số mẫu huấn luyện: {num_samples}")
+        st.write(f"- Ngưỡng độ tin cậy ban đầu: {initial_threshold}")
 
-        if test_acc:
+        if test_acc is not None:
             max_prob = max(probabilities)
             if max_prob > test_acc + 10:
                 st.warning("**Cảnh báo**: Độ tin cậy cao hơn đáng kể so với độ chính xác trên tập test. Kết quả có thể không chính xác.")

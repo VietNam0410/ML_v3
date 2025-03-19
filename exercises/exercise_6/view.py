@@ -144,6 +144,3 @@ def view_log_6():
             st.write(f"- Thời gian huấn luyện: {run_info.data.params.get('log_time', 'N/A')}")
         else:
             st.warning("Không có tham số nào được ghi lại cho run này.")
-
-if __name__ == "__main__":
-    view_log_6()
